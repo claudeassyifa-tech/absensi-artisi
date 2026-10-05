@@ -250,3 +250,12 @@ a.foto { color: var(--blue); font-weight: 600; text-decoration: none; margin-rig
 .thumb { width: 88px; height: 88px; object-fit: cover; border-radius: 10px; border: 2px solid var(--brand); }
 .inline-err { color: var(--red); font-size: 13px; font-weight: 600; margin-top: 12px; }
 .inline-err:empty { display: none; }
+
+/* ---------- Kerangka saat memuat & indikator proses ---------- */
+.skel { height: 96px; border-radius: 14px; margin-bottom: 14px; background: linear-gradient(90deg, #ece3cf 25%, #f6efe0 50%, #ece3cf 75%); background-size: 200% 100%; }
+.skel.short { height: 64px; }
+@media (prefers-reduced-motion: no-preference) { .skel { animation: shimmer 1.4s linear infinite; } }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.spin { display: inline-block; width: 18px; height: 18px; border: 3px solid var(--line); border-top-color: var(--brand); border-radius: 50%; margin-right: 10px; vertical-align: middle; animation: putar .8s linear infinite; }
+.spin.light { border-color: rgba(255,255,255,.4); border-top-color: #fff; }
+@keyframes putar { to { transform: rotate(360deg); } }
