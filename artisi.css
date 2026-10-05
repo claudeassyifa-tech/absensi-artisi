@@ -214,3 +214,39 @@ a.foto { color: var(--blue); font-weight: 600; text-decoration: none; margin-rig
   .bar, .badge, .stat, th, .pill { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .bar i { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* ---------- Kelompok shift (halaman absen) ---------- */
+.grp { border: 1.5px solid; border-radius: 14px; padding: 12px; margin-bottom: 14px; }
+.grp-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 2px 2px 10px; }
+.grp-h h3 { font-size: 16px; }
+.grp-h span { font-size: 13px; font-weight: 600; }
+.g-pagi { background: #e6eff8; border-color: #b7cde2; }
+.g-pagi .grp-h h3, .g-pagi .grp-h span { color: #2c5b8a; }
+.g-sore { background: #fdf0de; border-color: #f0cf9f; }
+.g-sore .grp-h h3, .g-sore .grp-h span { color: #a85a05; }
+.g-full { background: #f3ead6; border-color: #d9c297; }
+.g-full .grp-h h3, .g-full .grp-h span { color: var(--brand); }
+.grp .person { border-color: transparent; }
+.grp .person:hover { border-color: var(--brand); }
+.grp .person[aria-pressed="true"] { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(9, 72, 64, .18); }
+.person .st .badge { margin-right: 4px; }
+.muted { color: var(--muted); }
+
+/* ---------- Panel pengisian ---------- */
+.panel-top { display: flex; justify-content: space-between; align-items: center; }
+.link { background: none; border: none; font: inherit; font-size: 13px; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 4px; }
+.link:hover { color: var(--ink); }
+.step { margin-top: 16px; }
+.step .lbl { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+.step .lbl .sub { font-weight: 500; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+.seg button {
+  font: inherit; font-weight: 700; font-size: 15px; cursor: pointer;
+  padding: 12px 8px; border-radius: 10px; border: 2px solid var(--line); background: #fff; color: var(--ink);
+}
+.seg button:hover { border-color: var(--brand); }
+.seg button[aria-checked="true"] { background: var(--brand); border-color: var(--brand); color: #fff; }
+.fotobox { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.thumb { width: 88px; height: 88px; object-fit: cover; border-radius: 10px; border: 2px solid var(--brand); }
+.inline-err { color: var(--red); font-size: 13px; font-weight: 600; margin-top: 12px; }
+.inline-err:empty { display: none; }
