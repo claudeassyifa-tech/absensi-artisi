@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Rekap — Cafe ARTISI</title>
+<meta name="theme-color" content="#094840">
+<link rel="icon" type="image/png" href="img/favicon.png">
+<link rel="apple-touch-icon" href="img/favicon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="artisi.css">
+</head>
+<body>
+<header class="topbar" id="topbar"></header>
+
+<main class="wrap wide">
+
+  <!-- ===== Login ===== -->
+  <section id="login" class="login">
+    <a class="back" href="index.html">&larr; Kembali ke halaman absen</a>
+    <div class="card">
+      <h2>Masuk admin</h2>
+      <p class="sub">Halaman ini untuk melihat dan mencetak rekap absensi.</p>
+      <label class="f" for="pw">Password</label>
+      <input type="password" id="pw" autocomplete="current-password">
+      <div id="loginErr" class="notice err" style="margin:12px 0 0"></div>
+      <div class="actions"><button class="btn dark" id="btnLogin">Masuk</button></div>
+    </div>
+  </section>
+
+  <!-- ===== Dashboard ===== -->
+  <section id="dash" hidden>
+    <div class="toolbar no-print">
+      <a class="back" href="index.html" style="margin:0">&larr; Kembali</a>
+      <span class="grow"></span>
+      <button class="btn small" id="btnKeluar">Keluar</button>
+    </div>
+
+    <div class="printhead">
+      <img src="img/logo-hijau.png" alt="ARTISI Bakmie &amp; Kopi">
+      <h1>Laporan Absensi — Cafe ARTISI Bakmie &amp; Coffee</h1>
+      <p id="printPeriode"></p>
+    </div>
+
+    <div class="filters no-print">
+      <div><label for="fBulan">Bulan</label><select id="fBulan"></select></div>
+      <div><label for="fTahun">Tahun</label><select id="fTahun"></select></div>
+    </div>
+    <div class="toolbar no-print">
+      <label class="chk"><input type="checkbox" id="chkRinci"> Sertakan rincian harian saat dicetak</label>
+      <span class="grow"></span>
+      <button class="btn dark" id="btnCetak">Cetak / simpan PDF</button>
+    </div>
+
+    <h2 id="judulPeriode" style="margin-top:6px"></h2>
+    <div class="stats" id="stats"></div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="font-size:16px;margin-bottom:12px">Kehadiran per pegawai</h3>
+      <div class="bars" id="bars"></div>
+      <div class="legend">
+        <span style="--c:var(--green)">Tepat waktu</span>
+        <span style="--c:var(--amber)">Terlambat</span>
+        <span style="--c:var(--blue)">Izin</span>
+        <span style="--c:var(--purple)">Sakit</span>
+        <span style="--c:var(--red)">Alfa</span>
+      </div>
+    </div>
+
+    <div class="tablewrap" style="margin-bottom:16px">
+      <table>
+        <thead><tr>
+          <th>Nama</th><th>Status</th><th class="c">Hadir</th><th class="c">Terlambat</th><th class="c">Izin</th>
+          <th class="c">Sakit</th><th class="c">Alfa</th><th class="c">Pulang cepat</th><th class="c">Total jam</th><th class="c">Lembur (mnt)</th>
+        </tr></thead>
+        <tbody id="tbRekap"></tbody>
+      </table>
+    </div>
+
+    <div id="rinci">
+      <h2>Rincian harian</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr>
+            <th>Tanggal</th><th>Nama</th><th>Shift</th><th>Masuk</th><th>Pulang</th><th>Keterangan</th>
+            <th class="c">Durasi</th><th class="c">Lembur</th><th>Catatan</th><th class="no-print">Foto</th>
+          </tr></thead>
+          <tbody id="tbRinci"></tbody>
+        </table>
+      </div>
+    </div>
+    <p class="hint no-print">Foto kehadiran tersimpan di Google Drive pemilik script. Tautannya hanya bisa dibuka lewat akun Google tersebut.</p>
+  </section>
+</main>
+
+<script src="config.js"></script>
+<script>
+renderTopbar("admin.html");
+
+const BLN = ["Setahun penuh","Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+const now = new Date();
+let PW = sessionStorage.getItem("artisi_pw") || "";
+
+document.getElementById("fBulan").innerHTML = BLN.map(function (b, i) {
+  return '<option value="' + i + '"' + (i === now.getMonth() + 1 ? " selected" : "") + ">" + b + "</option>";
+}).join("");
+const thn = now.getFullYear();
+document.getElementById("fTahun").innerHTML = [thn, thn - 1].map(function (y) { return '<option value="' + y + '">' + y + "</option>"; }).join("");
+
+/* ---------- Login ---------- */
+function setLoginErr(t) { const e = document.getElementById("loginErr"); e.textContent = t; e.style.display = t ? "block" : "none"; }
+setLoginErr("");
+
+async function masuk(pw) {
+  setLoginErr("");
+  const btn = document.getElementById("btnLogin");
+  btn.disabled = true; btn.textContent = "Memeriksa...";
+  try {
+    const r = await api(null, { action: "rekap", password: pw, bulan: document.getElementById("fBulan").value, tahun: document.getElementById("fTahun").value });
+    if (!r.ok) throw new Error(r.message);
+    PW = pw; sessionStorage.setItem("artisi_pw", pw);
+    document.getElementById("login").hidden = true;
+    document.getElementById("dash").hidden = false;
+    tampilRekap(r);
+    muatRinci();
+  } catch (e) {
+    PW = ""; sessionStorage.removeItem("artisi_pw");
+    document.getElementById("login").hidden = false;
+    document.getElementById("dash").hidden = true;
+    setLoginErr(e.message === "Password salah" ? "Password salah. Coba lagi." : "Gagal terhubung. Periksa koneksi internet.");
+  } finally {
+    btn.disabled = false; btn.textContent = "Masuk";
+  }
+}
+
+document.getElementById("btnLogin").onclick = function () { masuk(document.getElementById("pw").value); };
+document.getElementById("pw").onkeydown = function (e) { if (e.key === "Enter") masuk(this.value); };
+document.getElementById("btnKeluar").onclick = function () { sessionStorage.removeItem("artisi_pw"); location.reload(); };
+document.getElementById("btnCetak").onclick = function () { window.print(); };
+document.getElementById("chkRinci").onchange = aturRinci;
+
+function aturRinci() {
+  document.getElementById("rinci").classList.toggle("no-print", !document.getElementById("chkRinci").checked);
+}
+aturRinci();
+
+/* ---------- Rekap ---------- */
+async function muatRekap() {
+  const r = await api(null, { action: "rekap", password: PW, bulan: document.getElementById("fBulan").value, tahun: document.getElementById("fTahun").value });
+  if (!r.ok) { alert(r.message); return; }
+  tampilRekap(r);
+}
+
+function tampilRekap(r) {
+  document.getElementById("judulPeriode").textContent = "Rekap " + r.periode;
+  document.getElementById("printPeriode").textContent = "Periode: " + r.periode + " | Dicetak: " + new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+
+  const T = { hadir: 0, terlambat: 0, izin: 0, sakit: 0, alfa: 0, jam: 0, lembur: 0 };
+  r.pegawai.forEach(function (p) { Object.keys(T).forEach(function (k) { T[k] += p[k]; }); });
+  document.getElementById("stats").innerHTML =
+    '<div class="stat"><b>' + T.hadir + "</b><span>Total hadir</span></div>" +
+    '<div class="stat"><b>' + T.terlambat + "</b><span>Terlambat</span></div>" +
+    '<div class="stat"><b>' + T.izin + "</b><span>Izin</span></div>" +
+    '<div class="stat"><b>' + T.sakit + "</b><span>Sakit</span></div>" +
+    '<div class="stat"><b>' + T.alfa + "</b><span>Alfa</span></div>" +
+    '<div class="stat"><b>' + (Math.round(T.jam * 10) / 10) + "</b><span>Total jam kerja</span></div>";
+
+  const warna = { tepat: "var(--green)", terlambat: "var(--amber)", izin: "var(--blue)", sakit: "var(--purple)", alfa: "var(--red)" };
+  document.getElementById("bars").innerHTML = r.pegawai.map(function (p) {
+    const tot = p.tepat + p.terlambat + p.izin + p.sakit + p.alfa;
+    const seg = ["tepat", "terlambat", "izin", "sakit", "alfa"].map(function (k) {
+      return p[k] ? '<i style="width:' + (p[k] / tot * 100) + "%;background:" + warna[k] + '" title="' + k + ": " + p[k] + '"></i>' : "";
+    }).join("");
+    return '<div class="bar-row"><div class="top"><b>' + esc(p.nama) + "</b><span class='sub'>" +
+      p.tepat + " tepat, " + p.terlambat + " telat, " + p.izin + " izin, " + p.sakit + " sakit, " + p.alfa + " alfa</span></div>" +
+      '<div class="bar">' + (tot ? seg : "") + "</div></div>";
+  }).join("");
+
+  document.getElementById("tbRekap").innerHTML = r.pegawai.map(function (p) {
+    return "<tr><td><b>" + esc(p.nama) + "</b></td><td>" + esc(p.status) + '</td><td class="c">' + p.hadir +
+      '</td><td class="c">' + p.terlambat + '</td><td class="c">' + p.izin + '</td><td class="c">' + p.sakit +
+      '</td><td class="c">' + p.alfa + '</td><td class="c">' + p.pulangCepat + '</td><td class="c">' + p.jam +
+      '</td><td class="c">' + p.lembur + "</td></tr>";
+  }).join("");
+}
+
+/* ---------- Rincian harian ---------- */
+async function muatRinci() {
+  const tb = document.getElementById("tbRinci");
+  tb.innerHTML = '<tr><td colspan="10" class="empty">Memuat...</td></tr>';
+  const r = await api(null, { action: "riwayat_admin", password: PW, bulan: document.getElementById("fBulan").value, tahun: document.getElementById("fTahun").value });
+  if (!r.ok) { tb.innerHTML = '<tr><td colspan="10" class="empty">Gagal memuat rincian.</td></tr>'; return; }
+  tb.innerHTML = r.rows.length ? r.rows.map(function (x) {
+    const foto = (x.fotoMasuk ? '<a class="foto" target="_blank" rel="noopener" href="' + esc(x.fotoMasuk) + '">Masuk</a>' : "") +
+                 (x.fotoPulang ? '<a class="foto" target="_blank" rel="noopener" href="' + esc(x.fotoPulang) + '">Pulang</a>' : "");
+    return "<tr><td>" + esc(x.tanggal) + "</td><td><b>" + esc(x.nama) + "</b></td><td>" + esc(x.shift) + "</td><td>" +
+      (jamPendek(x.masuk) || "-") + "</td><td>" + (jamPendek(x.pulang) || "-") + '</td><td><span class="badge ' + ketClass(x.ket) + '">' +
+      esc(x.ket) + '</span></td><td class="c">' + (x.durasi ? esc(x.durasi) + " j" : "-") + '</td><td class="c">' +
+      (parseInt(x.lembur, 10) ? esc(x.lembur) + " mnt" : "-") + '</td><td class="wrapnote">' + esc(x.catatan) +
+      '</td><td class="no-print">' + (foto || "-") + "</td></tr>";
+  }).join("") : '<tr><td colspan="10" class="empty">Belum ada data pada periode ini.</td></tr>';
+}
+
+function ganti() { muatRekap(); muatRinci(); }
+document.getElementById("fBulan").onchange = ganti;
+document.getElementById("fTahun").onchange = ganti;
+
+if (PW) masuk(PW);
+</script>
+</body>
+</html>

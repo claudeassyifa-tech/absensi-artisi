@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Absensi Hari Ini — Cafe ARTISI</title>
+<meta name="theme-color" content="#094840">
+<link rel="icon" type="image/png" href="img/favicon.png">
+<link rel="apple-touch-icon" href="img/favicon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="artisi.css">
+</head>
+<body>
+<header class="topbar" id="topbar"></header>
+
+<main class="wrap">
+  <h1 style="font-size:24px">Absensi hari ini</h1>
+  <p class="sub" id="sub">Memuat...</p>
+
+  <div class="stats" style="margin-top:14px" id="stats"></div>
+  <div id="groups"></div>
+  <p class="hint">Halaman ini diperbarui otomatis setiap 30 detik.</p>
+</main>
+
+<script src="config.js"></script>
+<script>
+renderTopbar("belum-absen.html");
+
+function grup(judul, items, tipe) {
+  if (!items.length) return "";
+  return '<section class="group"><h3>' + judul + ' <span class="count">' + items.length + "</span></h3>" +
+    items.map(function (p) {
+      let kanan = "";
+      if (tipe === "belum") kanan = "Shift " + p.shift.toLowerCase();
+      else if (tipe === "masuk") kanan = "Masuk " + jamPendek(p.masuk) + ' <span class="badge ' + ketClass(p.ket) + '">' + esc(p.ket) + "</span>";
+      else if (tipe === "pulang") kanan = jamPendek(p.masuk) + " - " + jamPendek(p.pulang);
+      else if (tipe === "izin") kanan = '<span class="badge b-blue">' + esc(p.ket) + "</span>";
+      else kanan = "Libur";
+      return '<div class="row"><span class="l">' + esc(p.nama) + '</span><span class="r">' + kanan + "</span></div>";
+    }).join("") + "</section>";
+}
+
+async function load() {
+  try {
+    const d = await api({ action: "hariini" });
+    if (!d.ok) throw new Error(d.message);
+    document.getElementById("sub").textContent = d.hari + ", " + d.tanggal + " (diperbarui " + jamPendek(d.jam) + ")";
+
+    const P = d.people;
+    const izin    = P.filter(function (p) { return p.ada && (p.ket === "Izin" || p.ket === "Sakit"); });
+    const pulang  = P.filter(function (p) { return p.ada && p.pulang; });
+    const masuk   = P.filter(function (p) { return p.ada && p.masuk && !p.pulang; });
+    const belum   = P.filter(function (p) { return p.terjadwal && !p.ada; });
+    const libur   = P.filter(function (p) { return !p.terjadwal && !p.ada; });
+    const terjadwal = P.filter(function (p) { return p.terjadwal; }).length;
+
+    document.getElementById("stats").innerHTML =
+      '<div class="stat"><b>' + terjadwal + "</b><span>Terjadwal</span></div>" +
+      '<div class="stat"><b>' + (masuk.length + pulang.length) + "</b><span>Sudah masuk</span></div>" +
+      '<div class="stat"><b>' + belum.length + "</b><span>Belum absen</span></div>" +
+      '<div class="stat"><b>' + izin.length + "</b><span>Izin / sakit</span></div>";
+
+    document.getElementById("groups").innerHTML =
+      grup("Belum absen", belum, "belum") +
+      grup("Sedang bekerja", masuk, "masuk") +
+      grup("Sudah pulang", pulang, "pulang") +
+      grup("Izin / sakit", izin, "izin") +
+      grup("Libur hari ini", libur, "libur");
+  } catch (e) {
+    document.getElementById("sub").textContent = "Data gagal dimuat. Periksa koneksi internet.";
+  }
+}
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

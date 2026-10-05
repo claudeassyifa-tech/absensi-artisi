@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Absensi — Cafe ARTISI Bakmie &amp; Coffee</title>
+<meta name="theme-color" content="#094840">
+<link rel="icon" type="image/png" href="img/favicon.png">
+<link rel="apple-touch-icon" href="img/favicon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="artisi.css">
+</head>
+<body>
+<header class="topbar" id="topbar"></header>
+
+<main class="wrap">
+  <section class="clock" aria-live="off">
+    <div class="clock-time" id="jam">--:--:--</div>
+    <div class="clock-date" id="tanggal">&nbsp;</div>
+    <div class="clock-shift">Pagi 09.00-17.00 &nbsp;|&nbsp; Sore 14.00-22.00</div>
+  </section>
+
+  <div id="notice" class="notice" role="status" aria-live="polite"></div>
+
+  <h2>Jadwal hari ini</h2>
+  <p class="sub" style="margin:-6px 0 10px">Tap namamu untuk mulai absen.</p>
+  <div id="list" class="people"><div class="empty">Memuat jadwal...</div></div>
+
+  <section id="panel"></section>
+
+  <details class="more" id="lain" hidden>
+    <summary>Bukan jadwalku hari ini (tukar shift)</summary>
+    <div id="listLain" class="people"></div>
+  </details>
+
+  <input type="file" id="cam" accept="image/*" capture="user" hidden>
+</main>
+
+<script src="config.js"></script>
+<script>
+renderTopbar("index.html");
+
+let DATA = null;     // data hari ini dari server
+let SEL = null;      // nama yang dipilih
+let BUSY = false;
+
+/* ---------- Jam ---------- */
+function tick() {
+  const n = new Date();
+  document.getElementById("jam").textContent = n.toLocaleTimeString("id-ID", {
+    timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+  }).replace(/\./g, ":");
+  document.getElementById("tanggal").textContent = n.toLocaleDateString("id-ID", {
+    timeZone: "Asia/Jakarta", weekday: "long", day: "numeric", month: "long", year: "numeric"
+  });
+}
+tick(); setInterval(tick, 1000);
+
+/* ---------- Notifikasi ---------- */
+function notice(tipe, judul, isi) {
+  const el = document.getElementById("notice");
+  el.className = "notice " + tipe;
+  el.innerHTML = "<strong>" + esc(judul) + "</strong>" + esc(isi || "");
+  el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function clearNotice() { const el = document.getElementById("notice"); el.className = "notice"; el.innerHTML = ""; }
+
+/* ---------- Muat data ---------- */
+async function load() {
+  try {
+    DATA = await api({ action: "hariini" });
+    if (!DATA.ok) throw new Error(DATA.message);
+    render();
+  } catch (e) {
+    document.getElementById("list").innerHTML = '<div class="empty">Jadwal gagal dimuat. Periksa koneksi internet, lalu muat ulang halaman.</div>';
+  }
+}
+
+function stateText(p) {
+  if (!p.ada) return "Belum absen";
+  if (p.ket === "Izin" || p.ket === "Sakit") return p.ket;
+  if (p.pulang) return "Masuk " + jamPendek(p.masuk) + ", pulang " + jamPendek(p.pulang);
+  return "Masuk " + jamPendek(p.masuk) + " (" + p.ket + ")";
+}
+
+function personBtn(p, shiftLabel) {
+  const cls = shiftLabel ? shiftLabel.toLowerCase() : "";
+  return '<button class="person" data-n="' + esc(p.nama) + '" aria-pressed="' + (SEL === p.nama) + '">' +
+    '<span class="nm">' + esc(p.nama) + "<span>" + esc(p.status) + "</span></span>" +
+    (shiftLabel ? '<span class="pill ' + cls + '">' + shiftLabel + "</span>" : "") +
+    '<span class="st">' + esc(stateText(p)) + "</span></button>";
+}
+
+function render() {
+  const jadwal = DATA.people.filter(function (p) { return p.terjadwal; });
+  const lain = DATA.people.filter(function (p) { return !p.terjadwal; });
+
+  document.getElementById("list").innerHTML = jadwal.length
+    ? jadwal.map(function (p) { return personBtn(p, p.shift); }).join("")
+    : '<div class="empty">Tidak ada jadwal hari ini.</div>';
+
+  const lainEl = document.getElementById("lain");
+  lainEl.hidden = !lain.length;
+  document.getElementById("listLain").innerHTML = lain.map(function (p) { return personBtn(p, ""); }).join("");
+
+  document.querySelectorAll(".person").forEach(function (b) {
+    b.onclick = function () { SEL = b.dataset.n; clearNotice(); render(); document.getElementById("panel").scrollIntoView({ behavior: "smooth", block: "nearest" }); };
+  });
+  renderPanel();
+}
+
+function renderPanel() {
+  const el = document.getElementById("panel");
+  if (!SEL) { el.innerHTML = ""; return; }
+  const p = DATA.people.find(function (x) { return x.nama === SEL; });
+  const shift = p.shift || (menitSekarangWIB() < 14 * 60 ? "Pagi" : "Sore");
+  const info = DATA.shiftInfo[p.ada && p.shiftTercatat ? p.shiftTercatat : shift];
+  const selesai = !!(p.ada && (p.pulang || p.ket === "Izin" || p.ket === "Sakit"));
+
+  let aksi = "";
+  if (selesai) {
+    aksi = '<p class="hint" style="font-size:14px">Absensimu hari ini sudah lengkap. ' + esc(stateText(p)) + ".</p>";
+  } else if (!p.ada) {
+    aksi = '<div class="actions"><button class="btn main" data-a="masuk">Absen masuk (ambil foto)</button></div>' +
+           '<div class="actions two"><button class="btn" data-a="izin">Izin</button><button class="btn" data-a="sakit">Sakit</button></div>';
+  } else {
+    aksi = '<div class="actions"><button class="btn main" data-a="pulang">Absen pulang (ambil foto)</button></div>';
+  }
+
+  el.innerHTML = '<div class="card panel">' +
+    "<h3>" + esc(p.nama) + "</h3>" +
+    '<div class="meta">' + (p.terjadwal ? "Shift " + (p.shift === "Seharian" ? "seharian (double shift)" : p.shift.toLowerCase()) : "Di luar jadwal hari ini, dicatat sebagai shift " + shift.toLowerCase()) +
+    " &middot; " + esc(info.label) + "</div>" +
+    (selesai ? "" :
+      '<label class="f" for="catatan">Catatan <span class="sub" id="catHint">(opsional)</span></label>' +
+      '<textarea id="catatan" placeholder="Wajib diisi untuk izin, sakit, atau pulang sebelum shift selesai"></textarea>') +
+    aksi +
+    (selesai ? "" : '<p class="hint">Foto dari kamera depan diperlukan untuk absen masuk dan pulang.</p>') +
+    "</div>";
+
+  el.querySelectorAll("[data-a]").forEach(function (b) { b.onclick = function () { aksiKlik(b.dataset.a, p, shift); }; });
+}
+
+/* ---------- Foto ---------- */
+function ambilFoto() {
+  return new Promise(function (res) {
+    const cam = document.getElementById("cam");
+    cam.value = "";
+    cam.onchange = function () { res(cam.files[0] || null); };
+    cam.click();
+  });
+}
+
+function kompres(file) {
+  return new Promise(function (res, rej) {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = function () {
+      const maks = 640, sk = Math.min(1, maks / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * sk); c.height = Math.round(img.height * sk);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      res(c.toDataURL("image/jpeg", 0.6));
+    };
+    img.onerror = function () { rej(new Error("Foto tidak bisa dibaca")); };
+    img.src = url;
+  });
+}
+
+/* ---------- Kirim absen ---------- */
+async function aksiKlik(tipe, p, shift) {
+  if (BUSY) return;
+  const catEl = document.getElementById("catatan");
+  const catatan = catEl ? catEl.value.trim() : "";
+
+  // validasi catatan di sisi HP (server juga memeriksa)
+  let perluCatatan = (tipe === "izin" || tipe === "sakit");
+  let alasan = "Catatan wajib diisi untuk " + tipe + ".";
+  if (tipe === "pulang") {
+    const s = DATA.shiftInfo[p.shiftTercatat || shift];
+    if (menitSekarangWIB() < s.selesai) {
+      perluCatatan = true;
+      alasan = "Kamu pulang sebelum shift selesai (" + jamPendek(String(Math.floor(s.selesai / 60)) + ":" + String(s.selesai % 60).padStart(2, "0")) + "). Tulis alasannya dulu.";
+    }
+  }
+  if (perluCatatan && !catatan) {
+    notice("err", "Catatan belum diisi", alasan);
+    catEl.focus();
+    return;
+  }
+
+  let foto = null;
+  if (tipe === "masuk" || tipe === "pulang") {
+    const f = await ambilFoto();
+    if (!f) return;               // batal ambil foto
+    try { foto = await kompres(f); } catch (e) { notice("err", "Foto gagal diproses", "Coba ambil foto lagi."); return; }
+  }
+
+  BUSY = true;
+  document.querySelectorAll(".btn").forEach(function (b) { b.disabled = true; });
+  notice("ok", "Menyimpan...", "Mohon tunggu sebentar.");
+  try {
+    const r = await api(null, { action: "absen", nama: p.nama, tipe: tipe, catatan: catatan, foto: foto });
+    if (!r.ok) throw new Error(r.message);
+    notice("ok", "Berhasil, " + p.nama, r.message);
+    SEL = null;
+    await load();
+  } catch (e) {
+    notice("err", "Absen belum tersimpan", e.message || "Periksa koneksi, lalu coba lagi.");
+    document.querySelectorAll(".btn").forEach(function (b) { b.disabled = false; });
+  } finally {
+    BUSY = false;
+  }
+}
+
+load();
+</script>
+</body>
+</html>

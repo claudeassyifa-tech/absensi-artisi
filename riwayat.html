@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riwayat Absensi — Cafe ARTISI</title>
+<meta name="theme-color" content="#094840">
+<link rel="icon" type="image/png" href="img/favicon.png">
+<link rel="apple-touch-icon" href="img/favicon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="artisi.css">
+</head>
+<body>
+<header class="topbar" id="topbar"></header>
+
+<main class="wrap wide">
+  <h1 style="font-size:24px;margin-bottom:12px">Riwayat absensi</h1>
+
+  <div class="filters">
+    <div><label for="fNama">Nama</label><select id="fNama"><option value="">Semua</option></select></div>
+    <div><label for="fBulan">Bulan</label><select id="fBulan"></select></div>
+    <div><label for="fTahun">Tahun</label><select id="fTahun"></select></div>
+    <div><label for="fKet">Keterangan</label>
+      <select id="fKet">
+        <option value="">Semua</option>
+        <option value="tepat">Tepat waktu</option>
+        <option value="telat">Terlambat</option>
+        <option value="izin">Izin</option>
+        <option value="sakit">Sakit</option>
+        <option value="lembur">Ada lembur</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>Tanggal</th><th>Nama</th><th>Shift</th><th>Masuk</th><th>Pulang</th>
+        <th>Keterangan</th><th class="c">Durasi</th><th class="c">Lembur</th><th>Catatan</th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="9" class="empty">Memuat data...</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<script src="config.js"></script>
+<script>
+renderTopbar("riwayat.html");
+
+const BLN = ["Semua bulan","Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+const now = new Date();
+let ROWS = [];
+
+document.getElementById("fBulan").innerHTML = BLN.map(function (b, i) {
+  return '<option value="' + i + '"' + (i === now.getMonth() + 1 ? " selected" : "") + ">" + b + "</option>";
+}).join("");
+const th = now.getFullYear();
+document.getElementById("fTahun").innerHTML = [th, th - 1].map(function (y) {
+  return '<option value="' + y + '">' + y + "</option>";
+}).join("");
+
+async function load() {
+  document.getElementById("tb").innerHTML = '<tr><td colspan="9" class="empty">Memuat data...</td></tr>';
+  try {
+    const r = await api({
+      action: "riwayat",
+      bulan: document.getElementById("fBulan").value,
+      tahun: document.getElementById("fTahun").value,
+      nama: document.getElementById("fNama").value
+    });
+    if (!r.ok) throw new Error(r.message);
+    const sel = document.getElementById("fNama");
+    if (sel.options.length === 1) {
+      r.pegawai.forEach(function (n) { sel.add(new Option(n, n)); });
+    }
+    ROWS = r.rows;
+    tampil();
+  } catch (e) {
+    document.getElementById("tb").innerHTML = '<tr><td colspan="9" class="empty">Data gagal dimuat. Periksa koneksi internet.</td></tr>';
+  }
+}
+
+function cocok(r, f) {
+  if (!f) return true;
+  if (f === "tepat") return r.ket === "Tepat Waktu";
+  if (f === "telat") return String(r.ket).indexOf("Terlambat") === 0;
+  if (f === "izin") return r.ket === "Izin";
+  if (f === "sakit") return r.ket === "Sakit";
+  if (f === "lembur") return parseInt(r.lembur, 10) > 0;
+  return true;
+}
+
+function tampil() {
+  const f = document.getElementById("fKet").value;
+  const rows = ROWS.filter(function (r) { return cocok(r, f); });
+
+  let hadir = 0, telat = 0, izin = 0, sakit = 0, jam = 0, lembur = 0;
+  rows.forEach(function (r) {
+    if (r.ket === "Izin") izin++;
+    else if (r.ket === "Sakit") sakit++;
+    else { hadir++; if (String(r.ket).indexOf("Terlambat") === 0) telat++; jam += parseFloat(r.durasi) || 0; lembur += parseInt(r.lembur, 10) || 0; }
+  });
+  document.getElementById("stats").innerHTML =
+    '<div class="stat"><b>' + hadir + "</b><span>Hadir</span></div>" +
+    '<div class="stat"><b>' + telat + "</b><span>Terlambat</span></div>" +
+    '<div class="stat"><b>' + izin + "</b><span>Izin</span></div>" +
+    '<div class="stat"><b>' + sakit + "</b><span>Sakit</span></div>" +
+    '<div class="stat"><b>' + (Math.round(jam * 10) / 10) + "</b><span>Total jam kerja</span></div>" +
+    '<div class="stat"><b>' + lembur + "</b><span>Lembur (menit)</span></div>";
+
+  document.getElementById("tb").innerHTML = rows.length ? rows.map(function (r) {
+    return "<tr><td>" + esc(r.tanggal) + "<br><span class='sub'>" + esc(r.hari) + "</span></td>" +
+      "<td><b>" + esc(r.nama) + "</b></td><td>" + esc(r.shift) + "</td>" +
+      "<td>" + (jamPendek(r.masuk) || "-") + "</td><td>" + (jamPendek(r.pulang) || "-") + "</td>" +
+      '<td><span class="badge ' + ketClass(r.ket) + '">' + esc(r.ket) + "</span></td>" +
+      '<td class="c">' + (r.durasi ? esc(r.durasi) + " j" : "-") + "</td>" +
+      '<td class="c">' + (parseInt(r.lembur, 10) ? esc(r.lembur) + " mnt" : "-") + "</td>" +
+      '<td class="wrapnote">' + esc(r.catatan) + "</td></tr>";
+  }).join("") : '<tr><td colspan="9" class="empty">Tidak ada data untuk filter ini.</td></tr>';
+}
+
+["fNama", "fBulan", "fTahun"].forEach(function (id) { document.getElementById(id).onchange = load; });
+document.getElementById("fKet").onchange = tampil;
+load();
+</script>
+</body>
+</html>
