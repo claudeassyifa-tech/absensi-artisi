@@ -2,7 +2,7 @@
 // GANTI dengan URL Web App dari Google Apps Script
 // (Deploy > Manage deployments > salin Web app URL)
 // =====================================================
-const SCRIPT_URL = "https://script.google.com/macros/s/GANTI_DENGAN_URL_ANDA/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/1whehKPmdhFmNGs-Y6NtMQ7iR1EY1UKquTbGa77PRhYg/exec";
 
 async function api(params, body) {
   let res;
