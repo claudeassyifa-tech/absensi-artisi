@@ -7,6 +7,8 @@
 <meta name="theme-color" content="#094840">
 <link rel="icon" type="image/png" href="img/favicon.png">
 <link rel="apple-touch-icon" href="img/favicon-192.png">
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -26,7 +28,7 @@
 
   <h2>Jadwal hari ini</h2>
   <p class="sub" style="margin:-6px 0 10px">Tap namamu untuk mulai absen.</p>
-  <div id="list"><div class="empty">Memuat jadwal...</div></div>
+  <div id="list" aria-busy="true"><div class="skel"></div><div class="skel"></div><div class="skel short"></div></div>
 
   <section id="panel"></section>
 
@@ -71,13 +73,25 @@ function notice(tipe, judul, isi) {
 function clearNotice() { const el = document.getElementById("notice"); el.className = "notice"; el.innerHTML = ""; }
 
 /* ---------- Muat data ---------- */
-async function load() {
+const CACHE_KEY = "artisi_hariini";
+function tanggalWIB() { return new Date().toLocaleDateString("en-GB", { timeZone: "Asia/Jakarta" }); }   // dd/mm/yyyy, sama dengan server
+function bacaCache() {
+  try { const c = JSON.parse(localStorage.getItem(CACHE_KEY)); return c && c.tanggal === tanggalWIB() ? c : null; } catch (e) { return null; }
+}
+function simpanCache() { try { localStorage.setItem(CACHE_KEY, JSON.stringify(DATA)); } catch (e) {} }
+
+// tampilDulu = true: langsung tampilkan data terakhir yang tersimpan di HP, lalu perbarui dari server
+async function load(tampilDulu) {
+  if (tampilDulu) { const c = bacaCache(); if (c) { DATA = c; render(); } }
   try {
-    DATA = await api({ action: "hariini" });
-    if (!DATA.ok) throw new Error(DATA.message);
-    render();
+    const d = await api({ action: "hariini" });
+    if (!d.ok) throw new Error(d.message);
+    const sebelum = SEL && DATA ? JSON.stringify(DATA.people.find(function (x) { return x.nama === SEL; })) : null;
+    DATA = d; simpanCache();
+    render(!!SEL);                                   // jangan hapus isian yang sedang ditulis
+    if (SEL && sebelum !== JSON.stringify(DATA.people.find(function (x) { return x.nama === SEL; }))) renderPanel();
   } catch (e) {
-    document.getElementById("list").innerHTML = '<div class="empty">Jadwal gagal dimuat. Periksa koneksi internet, lalu muat ulang halaman.</div>';
+    if (!DATA) document.getElementById("list").innerHTML = '<div class="empty">Jadwal gagal dimuat. Periksa koneksi internet, lalu muat ulang halaman.</div>';
   }
 }
 
@@ -100,7 +114,7 @@ const GRUP = [
   { key: "Sore",     cls: "g-sore", judul: "Shift Sore" }
 ];
 
-function render() {
+function render(keepPanel) {
   const jadwal = DATA.people.filter(function (p) { return p.terjadwal; });
   const lain = DATA.people.filter(function (p) { return !p.terjadwal; });
 
@@ -112,7 +126,9 @@ function render() {
       esc(DATA.shiftInfo[g.key].label) + '</span></div><div class="people">' +
       isi.map(personBtn).join("") + "</div></section>";
   });
-  document.getElementById("list").innerHTML = html || '<div class="empty">Tidak ada jadwal hari ini.</div>';
+  const listEl = document.getElementById("list");
+  listEl.setAttribute("aria-busy", "false");
+  listEl.innerHTML = html || '<div class="empty">Tidak ada jadwal hari ini.</div>';
 
   const lainEl = document.getElementById("lain");
   lainEl.hidden = !lain.length;
@@ -121,7 +137,7 @@ function render() {
   document.querySelectorAll(".person").forEach(function (b) {
     b.onclick = function () { pilihNama(b.dataset.n); };
   });
-  renderPanel();
+  if (!keepPanel) renderPanel();
 }
 
 function pilihNama(nama) {
@@ -206,7 +222,7 @@ function kompres(file) {
   return new Promise(function (res, rej) {
     const img = new Image(), url = URL.createObjectURL(file);
     img.onload = function () {
-      const maks = 640, sk = Math.min(1, maks / Math.max(img.width, img.height));
+      const maks = 560, sk = Math.min(1, maks / Math.max(img.width, img.height));
       const c = document.createElement("canvas");
       c.width = Math.round(img.width * sk); c.height = Math.round(img.height * sk);
       c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
@@ -227,6 +243,7 @@ function updateFoto() {
   document.getElementById("btnFoto").onclick = async function () {
     const f = await ambilFoto();
     if (!f) return;
+    box.innerHTML = '<span class="spin" aria-hidden="true"></span><span class="sub">Memproses foto...</span>';
     try { ST.foto = await kompres(f); setErr(""); } catch (e) { setErr("Foto gagal diproses. Coba ambil foto lagi."); }
     updateFoto();
   };
@@ -254,13 +271,16 @@ async function kirim(p, shift) {
 
   BUSY = true;
   const btn = document.getElementById("btnKirim");
-  btn.disabled = true; btn.textContent = "Menyimpan...";
+  btn.disabled = true; btn.innerHTML = '<span class="spin light" aria-hidden="true"></span>Menyimpan, mohon tunggu...';
   try {
     const r = await api(null, { action: "absen", nama: p.nama, tipe: t, catatan: catatan, foto: ST.foto });
     if (!r.ok) throw new Error(r.message);
     notice("ok", "Berhasil, " + p.nama, r.message);
     SEL = null; ST = { tipe: null, foto: null };
-    await load();
+    const dp = DATA.people.find(function (x) { return x.nama === p.nama; });
+    if (r.person && dp) {                // tampilkan hasilnya langsung dari jawaban server
+      Object.assign(dp, r.person); simpanCache(); render(); load(false);
+    } else { await load(false); }
   } catch (e) {
     setErr(e.message || "Absen belum tersimpan. Periksa koneksi, lalu coba lagi.");
     btn.disabled = false; btn.textContent = "Kirim absen";
@@ -269,7 +289,7 @@ async function kirim(p, shift) {
   }
 }
 
-load();
+load(true);
 </script>
 </body>
 </html>
