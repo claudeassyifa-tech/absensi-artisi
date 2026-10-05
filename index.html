@@ -218,33 +218,18 @@ function ambilFoto() {
   });
 }
 
-function kompres(file) {
-  return new Promise(function (res, rej) {
-    const img = new Image(), url = URL.createObjectURL(file);
-    img.onload = function () {
-      const maks = 560, sk = Math.min(1, maks / Math.max(img.width, img.height));
-      const c = document.createElement("canvas");
-      c.width = Math.round(img.width * sk); c.height = Math.round(img.height * sk);
-      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      URL.revokeObjectURL(url);
-      res(c.toDataURL("image/jpeg", 0.6));
-    };
-    img.onerror = function () { rej(new Error("Foto tidak bisa dibaca")); };
-    img.src = url;
-  });
-}
-
 function updateFoto() {
   const box = document.getElementById("fotoBox");
   if (!box) return;
   box.innerHTML = ST.foto
-    ? '<img class="thumb" src="' + ST.foto + '" alt="Foto bukti yang dipilih"><div><div class="sub" style="margin-bottom:6px">Foto siap dikirim.</div><button type="button" class="btn small" id="btnFoto">Ganti foto</button></div>'
-    : '<button type="button" class="btn" id="btnFoto">Ambil foto</button><span class="sub">Kamera depan akan terbuka.</span>';
+    ? '<img class="thumb" src="' + ST.foto + '" alt="Foto bukti yang dipilih"><div><div class="sub" style="margin-bottom:6px">Foto sudah diambil.</div><button type="button" class="btn small" id="btnFoto">Ganti foto</button></div>'
+    : '<button type="button" class="btn" id="btnFoto">Ambil foto</button><span class="sub">Kamera depan akan terbuka. Foto hanya sebagai syarat absen dan tidak disimpan.</span>';
   document.getElementById("btnFoto").onclick = async function () {
     const f = await ambilFoto();
     if (!f) return;
-    box.innerHTML = '<span class="spin" aria-hidden="true"></span><span class="sub">Memproses foto...</span>';
-    try { ST.foto = await kompres(f); setErr(""); } catch (e) { setErr("Foto gagal diproses. Coba ambil foto lagi."); }
+    if (ST.foto) URL.revokeObjectURL(ST.foto);
+    ST.foto = URL.createObjectURL(f);     // hanya untuk pratinjau di HP, tidak dikirim ke server
+    setErr("");
     updateFoto();
   };
 }
@@ -273,7 +258,7 @@ async function kirim(p, shift) {
   const btn = document.getElementById("btnKirim");
   btn.disabled = true; btn.innerHTML = '<span class="spin light" aria-hidden="true"></span>Menyimpan, mohon tunggu...';
   try {
-    const r = await api(null, { action: "absen", nama: p.nama, tipe: t, catatan: catatan, foto: ST.foto });
+    const r = await api(null, { action: "absen", nama: p.nama, tipe: t, catatan: catatan, adaFoto: !!ST.foto });
     if (!r.ok) throw new Error(r.message);
     notice("ok", "Berhasil, " + p.nama, r.message);
     SEL = null; ST = { tipe: null, foto: null };
