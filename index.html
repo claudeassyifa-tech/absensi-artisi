@@ -26,7 +26,7 @@
 
   <h2>Jadwal hari ini</h2>
   <p class="sub" style="margin:-6px 0 10px">Tap namamu untuk mulai absen.</p>
-  <div id="list" class="people"><div class="empty">Memuat jadwal...</div></div>
+  <div id="list"><div class="empty">Memuat jadwal...</div></div>
 
   <section id="panel"></section>
 
@@ -42,9 +42,12 @@
 <script>
 renderTopbar("index.html");
 
-let DATA = null;     // data hari ini dari server
-let SEL = null;      // nama yang dipilih
+let DATA = null;                 // data hari ini dari server
+let SEL = null;                  // nama yang dipilih
+let ST = { tipe: null, foto: null };   // pilihan keterangan + foto untuk absen yang sedang diisi
 let BUSY = false;
+
+const LABEL_TIPE = { masuk: "Hadir", izin: "Izin", sakit: "Sakit", pulang: "Pulang" };
 
 /* ---------- Jam ---------- */
 function tick() {
@@ -78,39 +81,59 @@ async function load() {
   }
 }
 
-function stateText(p) {
-  if (!p.ada) return "Belum absen";
-  if (p.ket === "Izin" || p.ket === "Sakit") return p.ket;
-  if (p.pulang) return "Masuk " + jamPendek(p.masuk) + ", pulang " + jamPendek(p.pulang);
-  return "Masuk " + jamPendek(p.masuk) + " (" + p.ket + ")";
+function stateHtml(p) {
+  if (!p.ada) return '<span class="muted">Belum absen</span>';
+  if (p.ket === "Izin" || p.ket === "Sakit") return '<span class="badge b-blue">' + esc(p.ket) + "</span>";
+  const jam = p.pulang ? "Masuk " + jamPendek(p.masuk) + ", pulang " + jamPendek(p.pulang) : "Masuk " + jamPendek(p.masuk);
+  return '<span class="badge ' + ketClass(p.ket) + '">' + esc(p.ket) + "</span> " + esc(jam);
 }
 
-function personBtn(p, shiftLabel) {
-  const cls = shiftLabel ? shiftLabel.toLowerCase() : "";
+function personBtn(p) {
   return '<button class="person" data-n="' + esc(p.nama) + '" aria-pressed="' + (SEL === p.nama) + '">' +
-    '<span class="nm">' + esc(p.nama) + "<span>" + esc(p.status) + "</span></span>" +
-    (shiftLabel ? '<span class="pill ' + cls + '">' + shiftLabel + "</span>" : "") +
-    '<span class="st">' + esc(stateText(p)) + "</span></button>";
+    '<span class="nm">' + esc(p.nama) + "</span>" +
+    '<span class="st">' + stateHtml(p) + "</span></button>";
 }
+
+const GRUP = [
+  { key: "Pagi",     cls: "g-pagi", judul: "Shift Pagi" },
+  { key: "Seharian", cls: "g-full", judul: "Seharian (double shift)" },
+  { key: "Sore",     cls: "g-sore", judul: "Shift Sore" }
+];
 
 function render() {
   const jadwal = DATA.people.filter(function (p) { return p.terjadwal; });
   const lain = DATA.people.filter(function (p) { return !p.terjadwal; });
 
-  document.getElementById("list").innerHTML = jadwal.length
-    ? jadwal.map(function (p) { return personBtn(p, p.shift); }).join("")
-    : '<div class="empty">Tidak ada jadwal hari ini.</div>';
+  let html = "";
+  GRUP.forEach(function (g) {
+    const isi = jadwal.filter(function (p) { return p.shift === g.key; });
+    if (!isi.length) return;
+    html += '<section class="grp ' + g.cls + '"><div class="grp-h"><h3>' + g.judul + "</h3><span>" +
+      esc(DATA.shiftInfo[g.key].label) + '</span></div><div class="people">' +
+      isi.map(personBtn).join("") + "</div></section>";
+  });
+  document.getElementById("list").innerHTML = html || '<div class="empty">Tidak ada jadwal hari ini.</div>';
 
   const lainEl = document.getElementById("lain");
   lainEl.hidden = !lain.length;
-  document.getElementById("listLain").innerHTML = lain.map(function (p) { return personBtn(p, ""); }).join("");
+  document.getElementById("listLain").innerHTML = lain.map(personBtn).join("");
 
   document.querySelectorAll(".person").forEach(function (b) {
-    b.onclick = function () { SEL = b.dataset.n; clearNotice(); render(); document.getElementById("panel").scrollIntoView({ behavior: "smooth", block: "nearest" }); };
+    b.onclick = function () { pilihNama(b.dataset.n); };
   });
   renderPanel();
 }
 
+function pilihNama(nama) {
+  if (SEL === nama) { document.getElementById("panel").scrollIntoView({ behavior: "smooth", block: "nearest" }); return; }
+  SEL = nama;
+  ST = { tipe: null, foto: null };
+  clearNotice();
+  render();
+  document.getElementById("panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+/* ---------- Panel pengisian absen ---------- */
 function renderPanel() {
   const el = document.getElementById("panel");
   if (!SEL) { el.innerHTML = ""; return; }
@@ -118,30 +141,56 @@ function renderPanel() {
   const shift = p.shift || (menitSekarangWIB() < 14 * 60 ? "Pagi" : "Sore");
   const info = DATA.shiftInfo[p.ada && p.shiftTercatat ? p.shiftTercatat : shift];
   const selesai = !!(p.ada && (p.pulang || p.ket === "Izin" || p.ket === "Sakit"));
+  const sudahMasuk = !!(p.ada && p.masuk && !p.pulang);
 
-  let aksi = "";
+  const meta = (p.terjadwal ? "Shift " + (p.shift === "Seharian" ? "seharian (double shift)" : p.shift.toLowerCase())
+                            : "Di luar jadwal hari ini, dicatat sebagai shift " + shift.toLowerCase()) + " &middot; " + esc(info.label);
+
+  let isi;
   if (selesai) {
-    aksi = '<p class="hint" style="font-size:14px">Absensimu hari ini sudah lengkap. ' + esc(stateText(p)) + ".</p>";
-  } else if (!p.ada) {
-    aksi = '<div class="actions"><button class="btn main" data-a="masuk">Absen masuk (ambil foto)</button></div>' +
-           '<div class="actions two"><button class="btn" data-a="izin">Izin</button><button class="btn" data-a="sakit">Sakit</button></div>';
+    isi = '<p class="hint" style="font-size:14px">Absensimu hari ini sudah lengkap.</p>';
   } else {
-    aksi = '<div class="actions"><button class="btn main" data-a="pulang">Absen pulang (ambil foto)</button></div>';
+    if (sudahMasuk) ST.tipe = "pulang";
+    const opsi = sudahMasuk ? ["pulang"] : ["masuk", "izin", "sakit"];
+    isi =
+      '<div class="step"><div class="lbl">1. Keterangan</div><div class="seg" role="radiogroup" aria-label="Keterangan absen">' +
+      opsi.map(function (t) {
+        return '<button type="button" role="radio" data-t="' + t + '" aria-checked="' + (ST.tipe === t) + '">' + LABEL_TIPE[t] + "</button>";
+      }).join("") + "</div></div>" +
+      '<div class="step"><div class="lbl">2. Foto bukti <span class="sub" id="fotoHint"></span></div><div class="fotobox" id="fotoBox"></div></div>' +
+      '<div class="step"><div class="lbl">3. Catatan <span class="sub" id="catHint"></span></div>' +
+      '<textarea id="catatan" placeholder="Tulis keterangan di sini. Boleh diisi sebelum atau sesudah foto."></textarea></div>' +
+      '<div class="inline-err" id="err" role="alert"></div>' +
+      '<div class="actions"><button class="btn main" id="btnKirim" type="button">Kirim absen</button></div>' +
+      '<p class="hint">Absen baru tersimpan setelah tombol Kirim absen ditekan.</p>';
   }
 
-  el.innerHTML = '<div class="card panel">' +
-    "<h3>" + esc(p.nama) + "</h3>" +
-    '<div class="meta">' + (p.terjadwal ? "Shift " + (p.shift === "Seharian" ? "seharian (double shift)" : p.shift.toLowerCase()) : "Di luar jadwal hari ini, dicatat sebagai shift " + shift.toLowerCase()) +
-    " &middot; " + esc(info.label) + "</div>" +
-    (selesai ? "" :
-      '<label class="f" for="catatan">Catatan <span class="sub" id="catHint">(opsional)</span></label>' +
-      '<textarea id="catatan" placeholder="Wajib diisi untuk izin, sakit, atau pulang sebelum shift selesai"></textarea>') +
-    aksi +
-    (selesai ? "" : '<p class="hint">Foto dari kamera depan diperlukan untuk absen masuk dan pulang.</p>') +
-    "</div>";
+  el.innerHTML = '<div class="card panel"><div class="panel-top"><h3>' + esc(p.nama) + "</h3>" +
+    '<button type="button" class="link" id="btnBatal">Tutup</button></div><div class="meta">' + meta + "</div>" + isi + "</div>";
 
-  el.querySelectorAll("[data-a]").forEach(function (b) { b.onclick = function () { aksiKlik(b.dataset.a, p, shift); }; });
+  document.getElementById("btnBatal").onclick = function () { SEL = null; ST = { tipe: null, foto: null }; render(); };
+  if (selesai) return;
+
+  el.querySelectorAll(".seg button").forEach(function (b) {
+    b.onclick = function () {
+      ST.tipe = b.dataset.t;
+      el.querySelectorAll(".seg button").forEach(function (x) { x.setAttribute("aria-checked", x === b); });
+      setErr(""); updateHints();
+    };
+  });
+  document.getElementById("btnKirim").onclick = function () { kirim(p, shift); };
+  updateFoto(); updateHints();
 }
+
+function updateHints() {
+  const f = document.getElementById("fotoHint"), c = document.getElementById("catHint");
+  if (!f) return;
+  const t = ST.tipe;
+  f.textContent = !t ? "" : (t === "masuk" || t === "pulang") ? "(wajib)" : "(opsional)";
+  c.textContent = !t ? "" : (t === "izin" || t === "sakit") ? "(wajib)" : t === "pulang" ? "(wajib jika pulang sebelum shift selesai)" : "(opsional)";
+}
+
+function setErr(t) { const e = document.getElementById("err"); if (e) e.textContent = t; }
 
 /* ---------- Foto ---------- */
 function ambilFoto() {
@@ -169,47 +218,52 @@ function kompres(file) {
   });
 }
 
-/* ---------- Kirim absen ---------- */
-async function aksiKlik(tipe, p, shift) {
+function updateFoto() {
+  const box = document.getElementById("fotoBox");
+  if (!box) return;
+  box.innerHTML = ST.foto
+    ? '<img class="thumb" src="' + ST.foto + '" alt="Foto bukti yang dipilih"><div><div class="sub" style="margin-bottom:6px">Foto siap dikirim.</div><button type="button" class="btn small" id="btnFoto">Ganti foto</button></div>'
+    : '<button type="button" class="btn" id="btnFoto">Ambil foto</button><span class="sub">Kamera depan akan terbuka.</span>';
+  document.getElementById("btnFoto").onclick = async function () {
+    const f = await ambilFoto();
+    if (!f) return;
+    try { ST.foto = await kompres(f); setErr(""); } catch (e) { setErr("Foto gagal diproses. Coba ambil foto lagi."); }
+    updateFoto();
+  };
+}
+
+/* ---------- Kirim ---------- */
+async function kirim(p, shift) {
   if (BUSY) return;
   const catEl = document.getElementById("catatan");
-  const catatan = catEl ? catEl.value.trim() : "";
+  const catatan = catEl.value.trim();
+  const t = ST.tipe;
 
-  // validasi catatan di sisi HP (server juga memeriksa)
-  let perluCatatan = (tipe === "izin" || tipe === "sakit");
-  let alasan = "Catatan wajib diisi untuk " + tipe + ".";
-  if (tipe === "pulang") {
+  if (!t) { setErr("Pilih keterangan dulu: Hadir, Izin, atau Sakit."); return; }
+  if ((t === "masuk" || t === "pulang") && !ST.foto) { setErr("Foto bukti wajib untuk absen " + LABEL_TIPE[t].toLowerCase() + ". Tekan Ambil foto."); return; }
+  if ((t === "izin" || t === "sakit") && !catatan) { setErr("Catatan wajib diisi untuk " + t + "."); catEl.focus(); return; }
+  if (t === "pulang") {
     const s = DATA.shiftInfo[p.shiftTercatat || shift];
-    if (menitSekarangWIB() < s.selesai) {
-      perluCatatan = true;
-      alasan = "Kamu pulang sebelum shift selesai (" + jamPendek(String(Math.floor(s.selesai / 60)) + ":" + String(s.selesai % 60).padStart(2, "0")) + "). Tulis alasannya dulu.";
+    if (menitSekarangWIB() < s.selesai && !catatan) {
+      const jamSelesai = String(Math.floor(s.selesai / 60)).padStart(2, "0") + "." + String(s.selesai % 60).padStart(2, "0");
+      setErr("Kamu pulang sebelum shift selesai (" + jamSelesai + "). Tulis alasannya di catatan.");
+      catEl.focus(); return;
     }
   }
-  if (perluCatatan && !catatan) {
-    notice("err", "Catatan belum diisi", alasan);
-    catEl.focus();
-    return;
-  }
-
-  let foto = null;
-  if (tipe === "masuk" || tipe === "pulang") {
-    const f = await ambilFoto();
-    if (!f) return;               // batal ambil foto
-    try { foto = await kompres(f); } catch (e) { notice("err", "Foto gagal diproses", "Coba ambil foto lagi."); return; }
-  }
+  setErr("");
 
   BUSY = true;
-  document.querySelectorAll(".btn").forEach(function (b) { b.disabled = true; });
-  notice("ok", "Menyimpan...", "Mohon tunggu sebentar.");
+  const btn = document.getElementById("btnKirim");
+  btn.disabled = true; btn.textContent = "Menyimpan...";
   try {
-    const r = await api(null, { action: "absen", nama: p.nama, tipe: tipe, catatan: catatan, foto: foto });
+    const r = await api(null, { action: "absen", nama: p.nama, tipe: t, catatan: catatan, foto: ST.foto });
     if (!r.ok) throw new Error(r.message);
     notice("ok", "Berhasil, " + p.nama, r.message);
-    SEL = null;
+    SEL = null; ST = { tipe: null, foto: null };
     await load();
   } catch (e) {
-    notice("err", "Absen belum tersimpan", e.message || "Periksa koneksi, lalu coba lagi.");
-    document.querySelectorAll(".btn").forEach(function (b) { b.disabled = false; });
+    setErr(e.message || "Absen belum tersimpan. Periksa koneksi, lalu coba lagi.");
+    btn.disabled = false; btn.textContent = "Kirim absen";
   } finally {
     BUSY = false;
   }
