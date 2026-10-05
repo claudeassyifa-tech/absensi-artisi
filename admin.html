@@ -91,7 +91,7 @@
         </table>
       </div>
     </div>
-    <p class="hint no-print">Foto kehadiran tersimpan di Google Drive pemilik script. Tautannya hanya bisa dibuka lewat akun Google tersebut.</p>
+    <p class="hint no-print">Foto kehadiran hanya diambil sebagai syarat absen dan tidak disimpan. Tanda centang berarti foto sudah diambil saat absen.</p>
   </section>
 </main>
 
@@ -193,8 +193,7 @@ async function muatRinci() {
   const r = await api(null, { action: "riwayat_admin", password: PW, bulan: document.getElementById("fBulan").value, tahun: document.getElementById("fTahun").value });
   if (!r.ok) { tb.innerHTML = '<tr><td colspan="10" class="empty">Gagal memuat rincian.</td></tr>'; return; }
   tb.innerHTML = r.rows.length ? r.rows.map(function (x) {
-    const foto = (x.fotoMasuk ? '<a class="foto" target="_blank" rel="noopener" href="' + esc(x.fotoMasuk) + '">Masuk</a>' : "") +
-                 (x.fotoPulang ? '<a class="foto" target="_blank" rel="noopener" href="' + esc(x.fotoPulang) + '">Pulang</a>' : "");
+    const foto = (x.fotoMasuk ? "Masuk &#10003; " : "") + (x.fotoPulang ? "Pulang &#10003;" : "");
     return "<tr><td>" + esc(x.tanggal) + "</td><td><b>" + esc(x.nama) + "</b></td><td>" + esc(x.shift) + "</td><td>" +
       (jamPendek(x.masuk) || "-") + "</td><td>" + (jamPendek(x.pulang) || "-") + '</td><td><span class="badge ' + ketClass(x.ket) + '">' +
       esc(x.ket) + '</span></td><td class="c">' + (x.durasi ? esc(x.durasi) + " j" : "-") + '</td><td class="c">' +
