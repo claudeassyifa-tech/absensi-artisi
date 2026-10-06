@@ -259,3 +259,13 @@ a.foto { color: var(--blue); font-weight: 600; text-decoration: none; margin-rig
 .spin { display: inline-block; width: 18px; height: 18px; border: 3px solid var(--line); border-top-color: var(--brand); border-radius: 50%; margin-right: 10px; vertical-align: middle; animation: putar .8s linear infinite; }
 .spin.light { border-color: rgba(255,255,255,.4); border-top-color: #fff; }
 @keyframes putar { to { transform: rotate(360deg); } }
+
+/* ---------- Penguncian absen ---------- */
+.seg button small { display: block; font-size: 11px; font-weight: 600; opacity: .85; min-height: 14px; }
+.seg button:disabled { background: #efe9da; border-color: var(--line); color: #8a857b; cursor: not-allowed; }
+.btn.main:disabled { background: #7f9a96; border-color: #7f9a96; cursor: not-allowed; opacity: 1; }
+.kunci { margin-top: 14px; padding: 10px 12px; border-radius: 10px; background: var(--amber-soft); color: #8a5a00; font-size: 13px; font-weight: 600; }
+.kunci:empty { display: none; }
+.person.done { background: #f1ede2; cursor: default; }
+.person.done .nm { color: var(--muted); }
+.grp .person.done:hover { border-color: transparent; }
