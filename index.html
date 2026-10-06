@@ -48,20 +48,95 @@ let DATA = null;                 // data hari ini dari server
 let SEL = null;                  // nama yang dipilih
 let ST = { tipe: null, foto: null };   // pilihan keterangan + foto untuk absen yang sedang diisi
 let BUSY = false;
+let OFFSET = 0;                  // selisih detik: jam server - jam HP (agar penguncian mengikuti jam server)
 
 const LABEL_TIPE = { masuk: "Hadir", izin: "Izin", sakit: "Sakit", pulang: "Pulang" };
 
-/* ---------- Jam ---------- */
+/* ---------- Waktu (mengikuti jam server, bukan jam HP) ---------- */
+const FMT_WIB = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+function detikHP() {
+  const p = FMT_WIB.formatToParts(new Date());
+  const g = function (t) { return +p.find(function (x) { return x.type === t; }).value; };
+  return (g("hour") % 24) * 3600 + g("minute") * 60 + g("second");
+}
+function detikKini() { return (((detikHP() + OFFSET) % 86400) + 86400) % 86400; }
+function pad2(n) { return String(n).padStart(2, "0"); }
+function jamDetik(d) { return pad2(Math.floor(d / 3600)) + ":" + pad2(Math.floor(d % 3600 / 60)) + ":" + pad2(d % 60); }
+function jamMenit(menit) { return pad2(Math.floor(menit / 60)) + "." + pad2(menit % 60); }
+function sisaWaktu(d) {
+  if (d < 60) return "kurang dari 1 menit";
+  const m = Math.ceil(d / 60), j = Math.floor(m / 60), mm = m % 60;
+  return j ? j + " jam" + (mm ? " " + mm + " menit" : "") : mm + " menit";
+}
+function selaraskanJam(d) {
+  if (!d.jam) return;
+  const p = d.jam.split(":").map(Number);
+  let off = (p[0] * 3600 + p[1] * 60 + p[2]) - detikHP();
+  if (off > 43200) off -= 86400;
+  if (off < -43200) off += 86400;
+  OFFSET = off;
+}
+
+let menitTerakhir = -1;
 function tick() {
-  const n = new Date();
-  document.getElementById("jam").textContent = n.toLocaleTimeString("id-ID", {
-    timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
-  }).replace(/\./g, ":");
+  const d = detikKini(), n = new Date();
+  document.getElementById("jam").textContent = jamDetik(d);
   document.getElementById("tanggal").textContent = n.toLocaleDateString("id-ID", {
     timeZone: "Asia/Jakarta", weekday: "long", day: "numeric", month: "long", year: "numeric"
   });
+  const m = Math.floor(d / 60);
+  if (DATA && m !== menitTerakhir) { menitTerakhir = m; render(true); }   // perbarui keterangan "dibuka jam ..."
+  updateKunci();
 }
-tick(); setInterval(tick, 1000);
+
+/* ---------- Penguncian ---------- */
+function shiftOrang(p) {
+  return p.ada && p.shiftTercatat ? p.shiftTercatat : (p.shift || (detikKini() < 14 * 3600 ? "Pagi" : "Sore"));
+}
+function kunciMasuk(p) {
+  const nm = shiftOrang(p), s = DATA.shiftInfo[nm], now = detikKini();
+  const buka = s.mulai * 60 - (DATA.bukaSebelum || 0) * 60;
+  if (now < buka) return { kunci: true, buka: buka, pesan: "Absen masuk dibuka jam " + jamMenit(buka / 60) + " (" + sisaWaktu(buka - now) + " lagi)." };
+  if (now >= s.selesai * 60) return { kunci: true, pesan: "Shift " + nm.toLowerCase() + " sudah berakhir, absen masuk ditutup. Hubungi admin jika perlu dicatat." };
+  return { kunci: false };
+}
+function kunciPulang(p) {
+  const s = DATA.shiftInfo[shiftOrang(p)], now = detikKini(), buka = s.selesai * 60;
+  if (now < buka) return { kunci: true, buka: buka, pesan: "Absen pulang dibuka jam " + jamMenit(buka / 60) + " (" + sisaWaktu(buka - now) + " lagi)." };
+  return { kunci: false };
+}
+function selesaiHariIni(p) { return !!(p.ada && (p.pulang || p.ket === "Izin" || p.ket === "Sakit")); }
+
+// dipanggil tiap detik: buka/kunci tombol tanpa menghapus isian yang sedang ditulis
+function updateKunci() {
+  if (!SEL || !DATA) return;
+  const kirimBtn = document.getElementById("btnKirim");
+  if (!kirimBtn) return;
+  const p = DATA.people.find(function (x) { return x.nama === SEL; });
+  if (!p) return;
+
+  let pesan = "", kunciKirim = false;
+  if (!p.ada) {
+    const k = kunciMasuk(p), segMasuk = document.querySelector('.seg button[data-t="masuk"]');
+    if (segMasuk) {
+      segMasuk.disabled = k.kunci;
+      const kecil = k.kunci ? (k.buka ? "buka " + jamMenit(k.buka / 60) : "ditutup") : "";
+      const el = segMasuk.querySelector("small"); if (el.textContent !== kecil) el.textContent = kecil;
+      if (k.kunci && ST.tipe === "masuk") {
+        ST.tipe = null;
+        document.querySelectorAll(".seg button").forEach(function (x) { x.setAttribute("aria-checked", "false"); });
+        updateHints();
+      }
+    }
+    if (k.kunci) { pesan = k.pesan + " Izin dan Sakit tetap bisa diisi."; kunciKirim = (ST.tipe === null); }
+  } else if (p.masuk && !p.pulang) {
+    const k = kunciPulang(p);
+    if (k.kunci) { pesan = k.pesan; kunciKirim = true; }
+  }
+  const info = document.getElementById("kunciInfo");
+  if (info && info.textContent !== pesan) info.textContent = pesan;
+  if (!BUSY) kirimBtn.disabled = kunciKirim;
+}
 
 /* ---------- Notifikasi ---------- */
 function notice(tipe, judul, isi) {
@@ -87,23 +162,32 @@ async function load(tampilDulu) {
     const d = await api({ action: "hariini" });
     if (!d.ok) throw new Error(d.message);
     const sebelum = SEL && DATA ? JSON.stringify(DATA.people.find(function (x) { return x.nama === SEL; })) : null;
-    DATA = d; simpanCache();
+    DATA = d; selaraskanJam(d); simpanCache();
     render(!!SEL);                                   // jangan hapus isian yang sedang ditulis
     if (SEL && sebelum !== JSON.stringify(DATA.people.find(function (x) { return x.nama === SEL; }))) renderPanel();
+    updateKunci();
   } catch (e) {
     if (!DATA) document.getElementById("list").innerHTML = '<div class="empty">Jadwal gagal dimuat. Periksa koneksi internet, lalu muat ulang halaman.</div>';
   }
 }
 
 function stateHtml(p) {
-  if (!p.ada) return '<span class="muted">Belum absen</span>';
-  if (p.ket === "Izin" || p.ket === "Sakit") return '<span class="badge b-blue">' + esc(p.ket) + "</span>";
+  if (!p.ada) {
+    const k = kunciMasuk(p);
+    return '<span class="muted">Belum absen' + (k.kunci && k.buka ? " &middot; dibuka " + jamMenit(k.buka / 60) : "") + "</span>";
+  }
+  if (p.ket === "Izin" || p.ket === "Sakit")
+    return '<span class="badge b-blue">' + esc(p.ket) + '</span> <span class="muted">&middot; Selesai, terkunci sampai besok</span>';
   const jam = p.pulang ? "Masuk " + jamPendek(p.masuk) + ", pulang " + jamPendek(p.pulang) : "Masuk " + jamPendek(p.masuk);
-  return '<span class="badge ' + ketClass(p.ket) + '">' + esc(p.ket) + "</span> " + esc(jam);
+  let tambahan = "";
+  if (p.pulang) tambahan = ' <span class="muted">&middot; Selesai, terkunci sampai besok</span>';
+  else { const k = kunciPulang(p); if (k.kunci) tambahan = ' <span class="muted">&middot; pulang dibuka ' + jamMenit(k.buka / 60) + "</span>"; }
+  return '<span class="badge ' + ketClass(p.ket) + '">' + esc(p.ket) + "</span> " + esc(jam) + tambahan;
 }
 
 function personBtn(p) {
-  return '<button class="person" data-n="' + esc(p.nama) + '" aria-pressed="' + (SEL === p.nama) + '">' +
+  const done = selesaiHariIni(p);
+  return '<button class="person' + (done ? " done" : "") + '" data-n="' + esc(p.nama) + '" aria-pressed="' + (SEL === p.nama) + '"' + (done ? ' aria-disabled="true"' : "") + ">" +
     '<span class="nm">' + esc(p.nama) + "</span>" +
     '<span class="st">' + stateHtml(p) + "</span></button>";
 }
@@ -135,7 +219,13 @@ function render(keepPanel) {
   document.getElementById("listLain").innerHTML = lain.map(personBtn).join("");
 
   document.querySelectorAll(".person").forEach(function (b) {
-    b.onclick = function () { pilihNama(b.dataset.n); };
+    b.onclick = function () {
+      if (b.classList.contains("done")) {
+        notice("ok", "Absensi " + b.dataset.n + " hari ini sudah selesai", "Absen terkunci sampai besok.");
+        return;
+      }
+      pilihNama(b.dataset.n);
+    };
   });
   if (!keepPanel) renderPanel();
 }
@@ -154,9 +244,9 @@ function renderPanel() {
   const el = document.getElementById("panel");
   if (!SEL) { el.innerHTML = ""; return; }
   const p = DATA.people.find(function (x) { return x.nama === SEL; });
-  const shift = p.shift || (menitSekarangWIB() < 14 * 60 ? "Pagi" : "Sore");
-  const info = DATA.shiftInfo[p.ada && p.shiftTercatat ? p.shiftTercatat : shift];
-  const selesai = !!(p.ada && (p.pulang || p.ket === "Izin" || p.ket === "Sakit"));
+  const shift = shiftOrang(p);
+  const info = DATA.shiftInfo[shift];
+  const selesai = selesaiHariIni(p);
   const sudahMasuk = !!(p.ada && p.masuk && !p.pulang);
 
   const meta = (p.terjadwal ? "Shift " + (p.shift === "Seharian" ? "seharian (double shift)" : p.shift.toLowerCase())
@@ -164,18 +254,19 @@ function renderPanel() {
 
   let isi;
   if (selesai) {
-    isi = '<p class="hint" style="font-size:14px">Absensimu hari ini sudah lengkap.</p>';
+    isi = '<p class="hint" style="font-size:14px">Absensimu hari ini sudah lengkap dan terkunci sampai besok.</p>';
   } else {
     if (sudahMasuk) ST.tipe = "pulang";
     const opsi = sudahMasuk ? ["pulang"] : ["masuk", "izin", "sakit"];
     isi =
       '<div class="step"><div class="lbl">1. Keterangan</div><div class="seg" role="radiogroup" aria-label="Keterangan absen">' +
       opsi.map(function (t) {
-        return '<button type="button" role="radio" data-t="' + t + '" aria-checked="' + (ST.tipe === t) + '">' + LABEL_TIPE[t] + "</button>";
+        return '<button type="button" role="radio" data-t="' + t + '" aria-checked="' + (ST.tipe === t) + '">' + LABEL_TIPE[t] + "<small></small></button>";
       }).join("") + "</div></div>" +
       '<div class="step"><div class="lbl">2. Foto bukti <span class="sub" id="fotoHint"></span></div><div class="fotobox" id="fotoBox"></div></div>' +
       '<div class="step"><div class="lbl">3. Catatan <span class="sub" id="catHint"></span></div>' +
       '<textarea id="catatan" placeholder="Tulis keterangan di sini. Boleh diisi sebelum atau sesudah foto."></textarea></div>' +
+      '<div class="kunci" id="kunciInfo" role="status"></div>' +
       '<div class="inline-err" id="err" role="alert"></div>' +
       '<div class="actions"><button class="btn main" id="btnKirim" type="button">Kirim absen</button></div>' +
       '<p class="hint">Absen baru tersimpan setelah tombol Kirim absen ditekan.</p>';
@@ -191,11 +282,11 @@ function renderPanel() {
     b.onclick = function () {
       ST.tipe = b.dataset.t;
       el.querySelectorAll(".seg button").forEach(function (x) { x.setAttribute("aria-checked", x === b); });
-      setErr(""); updateHints();
+      setErr(""); updateHints(); updateKunci();
     };
   });
-  document.getElementById("btnKirim").onclick = function () { kirim(p, shift); };
-  updateFoto(); updateHints();
+  document.getElementById("btnKirim").onclick = function () { kirim(p); };
+  updateFoto(); updateHints(); updateKunci();
 }
 
 function updateHints() {
@@ -203,7 +294,7 @@ function updateHints() {
   if (!f) return;
   const t = ST.tipe;
   f.textContent = !t ? "" : (t === "masuk" || t === "pulang") ? "(wajib)" : "(opsional)";
-  c.textContent = !t ? "" : (t === "izin" || t === "sakit") ? "(wajib)" : t === "pulang" ? "(wajib jika pulang sebelum shift selesai)" : "(opsional)";
+  c.textContent = !t ? "" : (t === "izin" || t === "sakit") ? "(wajib)" : "(opsional)";
 }
 
 function setErr(t) { const e = document.getElementById("err"); if (e) e.textContent = t; }
@@ -235,23 +326,17 @@ function updateFoto() {
 }
 
 /* ---------- Kirim ---------- */
-async function kirim(p, shift) {
+async function kirim(p) {
   if (BUSY) return;
   const catEl = document.getElementById("catatan");
   const catatan = catEl.value.trim();
   const t = ST.tipe;
 
   if (!t) { setErr("Pilih keterangan dulu: Hadir, Izin, atau Sakit."); return; }
+  if (t === "masuk") { const k = kunciMasuk(p); if (k.kunci) { setErr(k.pesan); return; } }
+  if (t === "pulang") { const k = kunciPulang(p); if (k.kunci) { setErr(k.pesan); return; } }
   if ((t === "masuk" || t === "pulang") && !ST.foto) { setErr("Foto bukti wajib untuk absen " + LABEL_TIPE[t].toLowerCase() + ". Tekan Ambil foto."); return; }
   if ((t === "izin" || t === "sakit") && !catatan) { setErr("Catatan wajib diisi untuk " + t + "."); catEl.focus(); return; }
-  if (t === "pulang") {
-    const s = DATA.shiftInfo[p.shiftTercatat || shift];
-    if (menitSekarangWIB() < s.selesai && !catatan) {
-      const jamSelesai = String(Math.floor(s.selesai / 60)).padStart(2, "0") + "." + String(s.selesai % 60).padStart(2, "0");
-      setErr("Kamu pulang sebelum shift selesai (" + jamSelesai + "). Tulis alasannya di catatan.");
-      catEl.focus(); return;
-    }
-  }
   setErr("");
 
   BUSY = true;
@@ -268,13 +353,16 @@ async function kirim(p, shift) {
     } else { await load(false); }
   } catch (e) {
     setErr(e.message || "Absen belum tersimpan. Periksa koneksi, lalu coba lagi.");
-    btn.disabled = false; btn.textContent = "Kirim absen";
+    btn.textContent = "Kirim absen";
   } finally {
     BUSY = false;
+    updateKunci();
   }
 }
 
+tick(); setInterval(tick, 1000);
 load(true);
+setInterval(function () { if (!BUSY) load(false); }, 60000);   // selaraskan jam & status dengan server tiap menit
 </script>
 </body>
 </html>
