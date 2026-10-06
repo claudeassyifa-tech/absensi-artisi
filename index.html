@@ -50,7 +50,7 @@ let ST = { tipe: null, foto: null };   // pilihan keterangan + foto untuk absen 
 let BUSY = false;
 let OFFSET = 0;                  // selisih detik: jam server - jam HP (agar penguncian mengikuti jam server)
 
-const LABEL_TIPE = { masuk: "Hadir", izin: "Izin", sakit: "Sakit", pulang: "Pulang" };
+const LABEL_TIPE = { masuk: "Hadir", izin: "Izin", sakit: "Sakit", pulang: "Pulang", pulang_awal: "Izin pulang duluan" };
 
 /* ---------- Waktu (mengikuti jam server, bukan jam HP) ---------- */
 const FMT_WIB = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -107,6 +107,12 @@ function kunciPulang(p) {
 }
 function selesaiHariIni(p) { return !!(p.ada && (p.pulang || p.ket === "Izin" || p.ket === "Sakit")); }
 
+function lepasTipe() {
+  ST.tipe = null;
+  document.querySelectorAll(".seg button").forEach(function (x) { x.setAttribute("aria-checked", "false"); });
+  updateHints();
+}
+
 // dipanggil tiap detik: buka/kunci tombol tanpa menghapus isian yang sedang ditulis
 function updateKunci() {
   if (!SEL || !DATA) return;
@@ -131,7 +137,24 @@ function updateKunci() {
     if (k.kunci) { pesan = k.pesan + " Izin dan Sakit tetap bisa diisi."; kunciKirim = (ST.tipe === null); }
   } else if (p.masuk && !p.pulang) {
     const k = kunciPulang(p);
-    if (k.kunci) { pesan = k.pesan; kunciKirim = true; }
+    const segPulang = document.querySelector('.seg button[data-t="pulang"]');
+    const segAwal = document.querySelector('.seg button[data-t="pulang_awal"]');
+    if (segPulang) {
+      segPulang.disabled = k.kunci;
+      const kecil = k.kunci ? "buka " + jamMenit(k.buka / 60) : "";
+      const el = segPulang.querySelector("small"); if (el.textContent !== kecil) el.textContent = kecil;
+      if (k.kunci && ST.tipe === "pulang") lepasTipe();
+    }
+    if (segAwal) {
+      segAwal.disabled = !k.kunci;                    // setelah jam pulang, pakai tombol Pulang biasa
+      const kecil = k.kunci ? "" : "shift selesai";
+      const el = segAwal.querySelector("small"); if (el.textContent !== kecil) el.textContent = kecil;
+      if (!k.kunci && ST.tipe === "pulang_awal") lepasTipe();
+    }
+    if (k.kunci) {
+      pesan = k.pesan + (segAwal ? " Kalau perlu pulang lebih awal, pilih Izin pulang duluan dan tulis alasannya." : "");
+      kunciKirim = (ST.tipe === null || ST.tipe === "pulang");
+    }
   }
   const info = document.getElementById("kunciInfo");
   if (info && info.textContent !== pesan) info.textContent = pesan;
@@ -256,8 +279,9 @@ function renderPanel() {
   if (selesai) {
     isi = '<p class="hint" style="font-size:14px">Absensimu hari ini sudah lengkap dan terkunci sampai besok.</p>';
   } else {
-    if (sudahMasuk) ST.tipe = "pulang";
-    const opsi = sudahMasuk ? ["pulang"] : ["masuk", "izin", "sakit"];
+    const pulangTerkunci = sudahMasuk && kunciPulang(p).kunci;
+    if (sudahMasuk && !pulangTerkunci) ST.tipe = "pulang";
+    const opsi = sudahMasuk ? (pulangTerkunci ? ["pulang", "pulang_awal"] : ["pulang"]) : ["masuk", "izin", "sakit"];
     isi =
       '<div class="step"><div class="lbl">1. Keterangan</div><div class="seg" role="radiogroup" aria-label="Keterangan absen">' +
       opsi.map(function (t) {
@@ -286,6 +310,7 @@ function renderPanel() {
     };
   });
   document.getElementById("btnKirim").onclick = function () { kirim(p); };
+  document.getElementById("catatan").addEventListener("input", function () { setErr(""); });   // pesan merah hilang saat mulai mengetik
   updateFoto(); updateHints(); updateKunci();
 }
 
@@ -293,8 +318,8 @@ function updateHints() {
   const f = document.getElementById("fotoHint"), c = document.getElementById("catHint");
   if (!f) return;
   const t = ST.tipe;
-  f.textContent = !t ? "" : (t === "masuk" || t === "pulang") ? "(wajib)" : "(opsional)";
-  c.textContent = !t ? "" : (t === "izin" || t === "sakit") ? "(wajib)" : "(opsional)";
+  f.textContent = !t ? "" : (t === "masuk" || t === "pulang" || t === "pulang_awal") ? "(wajib)" : "(opsional)";
+  c.textContent = !t ? "" : t === "pulang_awal" ? "(wajib: tulis alasan pulang duluan)" : (t === "izin" || t === "sakit") ? "(wajib)" : "(opsional)";
 }
 
 function setErr(t) { const e = document.getElementById("err"); if (e) e.textContent = t; }
@@ -335,8 +360,10 @@ async function kirim(p) {
   if (!t) { setErr("Pilih keterangan dulu: Hadir, Izin, atau Sakit."); return; }
   if (t === "masuk") { const k = kunciMasuk(p); if (k.kunci) { setErr(k.pesan); return; } }
   if (t === "pulang") { const k = kunciPulang(p); if (k.kunci) { setErr(k.pesan); return; } }
-  if ((t === "masuk" || t === "pulang") && !ST.foto) { setErr("Foto bukti wajib untuk absen " + LABEL_TIPE[t].toLowerCase() + ". Tekan Ambil foto."); return; }
+  if (t === "pulang_awal" && !kunciPulang(p).kunci) { setErr("Shift sudah selesai. Gunakan tombol Pulang biasa."); return; }
+  if ((t === "masuk" || t === "pulang" || t === "pulang_awal") && !ST.foto) { setErr("Foto bukti wajib untuk absen " + LABEL_TIPE[t].toLowerCase() + ". Tekan Ambil foto."); return; }
   if ((t === "izin" || t === "sakit") && !catatan) { setErr("Catatan wajib diisi untuk " + t + "."); catEl.focus(); return; }
+  if (t === "pulang_awal" && !catatan) { setErr("Tulis alasan pulang duluan di catatan."); catEl.focus(); return; }
   setErr("");
 
   BUSY = true;
