@@ -7,6 +7,8 @@
 <meta name="theme-color" content="#094840">
 <link rel="icon" type="image/png" href="img/favicon.png">
 <link rel="apple-touch-icon" href="img/favicon-192.png">
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -33,7 +35,7 @@ function grup(judul, items, tipe) {
   return '<section class="group"><h3>' + judul + ' <span class="count">' + items.length + "</span></h3>" +
     items.map(function (p) {
       let kanan = "";
-      if (tipe === "belum") kanan = "Shift " + p.shift.toLowerCase();
+      if (tipe === "belum") kanan = p.shift === "Full" ? "Full" : "Shift " + p.shift.toLowerCase();
       else if (tipe === "masuk") kanan = "Masuk " + jamPendek(p.masuk) + ' <span class="badge ' + ketClass(p.ket) + '">' + esc(p.ket) + "</span>";
       else if (tipe === "pulang") kanan = jamPendek(p.masuk) + " - " + jamPendek(p.pulang);
       else if (tipe === "izin") kanan = '<span class="badge b-blue">' + esc(p.ket) + "</span>";
@@ -42,38 +44,53 @@ function grup(judul, items, tipe) {
     }).join("") + "</section>";
 }
 
-async function load() {
+function tampil(d, sementara) {
+  document.getElementById("sub").textContent = d.hari + ", " + d.tanggal +
+    (sementara ? " (memperbarui...)" : " (diperbarui " + jamPendek(d.jam) + ")");
+
+  const P = d.people;
+  const izin    = P.filter(function (p) { return p.ada && (p.ket === "Izin" || p.ket === "Sakit"); });
+  const pulang  = P.filter(function (p) { return p.ada && p.pulang; });
+  const masuk   = P.filter(function (p) { return p.ada && p.masuk && !p.pulang; });
+  const belum   = P.filter(function (p) { return p.terjadwal && !p.ada; });
+  const libur   = P.filter(function (p) { return !p.terjadwal && !p.ada; });
+  const terjadwal = P.filter(function (p) { return p.terjadwal; }).length;
+
+  document.getElementById("stats").innerHTML =
+    '<div class="stat"><b>' + terjadwal + "</b><span>Terjadwal</span></div>" +
+    '<div class="stat"><b>' + (masuk.length + pulang.length) + "</b><span>Sudah masuk</span></div>" +
+    '<div class="stat"><b>' + belum.length + "</b><span>Belum absen</span></div>" +
+    '<div class="stat"><b>' + izin.length + "</b><span>Izin / sakit</span></div>";
+
+  document.getElementById("groups").innerHTML =
+    grup("Belum absen", belum, "belum") +
+    grup("Sedang bekerja", masuk, "masuk") +
+    grup("Sudah pulang", pulang, "pulang") +
+    grup("Izin / sakit", izin, "izin") +
+    grup("Libur hari ini", libur, "libur");
+}
+
+const CACHE_KEY = "artisi_hariini_" + TOKEN;   // sama dengan halaman absen
+async function load(pertama) {
+  if (pertama) {
+    try {
+      const c = JSON.parse(localStorage.getItem(CACHE_KEY));
+      if (c && c.urut && c.tanggal === new Date().toLocaleDateString("en-GB", { timeZone: "Asia/Jakarta" })) tampil(c, true);
+    } catch (e) {}
+  }
   try {
     const d = await api({ action: "hariini" });
     if (!d.ok) throw new Error(d.message);
-    document.getElementById("sub").textContent = d.hari + ", " + d.tanggal + " (diperbarui " + jamPendek(d.jam) + ")";
-
-    const P = d.people;
-    const izin    = P.filter(function (p) { return p.ada && (p.ket === "Izin" || p.ket === "Sakit"); });
-    const pulang  = P.filter(function (p) { return p.ada && p.pulang; });
-    const masuk   = P.filter(function (p) { return p.ada && p.masuk && !p.pulang; });
-    const belum   = P.filter(function (p) { return p.terjadwal && !p.ada; });
-    const libur   = P.filter(function (p) { return !p.terjadwal && !p.ada; });
-    const terjadwal = P.filter(function (p) { return p.terjadwal; }).length;
-
-    document.getElementById("stats").innerHTML =
-      '<div class="stat"><b>' + terjadwal + "</b><span>Terjadwal</span></div>" +
-      '<div class="stat"><b>' + (masuk.length + pulang.length) + "</b><span>Sudah masuk</span></div>" +
-      '<div class="stat"><b>' + belum.length + "</b><span>Belum absen</span></div>" +
-      '<div class="stat"><b>' + izin.length + "</b><span>Izin / sakit</span></div>";
-
-    document.getElementById("groups").innerHTML =
-      grup("Belum absen", belum, "belum") +
-      grup("Sedang bekerja", masuk, "masuk") +
-      grup("Sudah pulang", pulang, "pulang") +
-      grup("Izin / sakit", izin, "izin") +
-      grup("Libur hari ini", libur, "libur");
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(d)); } catch (e) {}
+    setLokasiLabel(d.lokasiNama);
+    tampil(d, false);
   } catch (e) {
-    document.getElementById("sub").textContent = "Data gagal dimuat. Periksa koneksi internet.";
+    if (!document.getElementById("stats").innerHTML)
+      document.getElementById("sub").textContent = /Link/.test(e.message || "") ? e.message : "Data gagal dimuat. Periksa koneksi internet.";
   }
 }
-load();
-setInterval(load, 30000);
+load(true);
+setInterval(function () { load(false); }, 30000);
 </script>
 </body>
 </html>
