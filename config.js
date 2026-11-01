@@ -16,6 +16,51 @@ function getToken() {
   return t;
 }
 const TOKEN = getToken();
+const HAL_ADMIN = /admin\.html/.test(location.pathname);
+const LOK_BAKSO = /^bakso/.test(TOKEN) && !HAL_ADMIN;
+
+// ---- Tema per lokasi: ARTISI hijau-krem, Bakso hitam-abu ----
+(function () {
+  const h = document.documentElement, head = document.head;
+  if (LOK_BAKSO) h.classList.add("tema-bakso");
+  const setMeta = function (rel, href) { const l = head.querySelector('link[rel="' + rel + '"]'); if (l) l.href = href; };
+  if (LOK_BAKSO) {
+    setMeta("icon", "img/favicon-bakso.png"); setMeta("apple-touch-icon", "img/favicon-192-bakso.png");
+    const m = head.querySelector('meta[name="theme-color"]'); if (m) m.content = "#222222";
+    document.title = document.title.replace(/Cafe ARTISI.*$/, "Bakso");
+  }
+  // manifest aplikasi sesuai lokasi (hanya jika ada token)
+  if (TOKEN && !HAL_ADMIN && (/^artisi/.test(TOKEN) || LOK_BAKSO)) {
+    const l = document.createElement("link"); l.rel = "manifest";
+    l.href = LOK_BAKSO ? "manifest-bakso.json" : "manifest-artisi.json"; head.appendChild(l);
+  }
+  if ("serviceWorker" in navigator) window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
+})();
+
+// ---- Ajakan "Pasang di layar utama" ----
+let _tawaran = null;
+window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); _tawaran = e; tampilPasang(); });
+window.addEventListener("appinstalled", function () { _tawaran = null; const b = document.getElementById("pasangBar"); if (b) b.remove(); });
+function sudahApp() { return window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true; }
+function pasangDitutup() { try { return localStorage.getItem("pasang_tutup_" + TOKEN) === "1"; } catch (e) { return false; } }
+function tampilPasang() {
+  if (!TOKEN || HAL_ADMIN || sudahApp() || pasangDitutup() || document.getElementById("pasangBar") || !document.body) return;
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (!_tawaran && !ios) return;     // Chrome Android: muncul saat browser siap; iPhone: tampilkan petunjuk
+  const nama = LOK_BAKSO ? "Absen Bakso" : "Absen ARTISI";
+  const bar = document.createElement("div"); bar.id = "pasangBar"; bar.className = "pasang no-print";
+  bar.innerHTML = '<div class="pasang-t"><b>Pasang ' + nama + ' di layar HP</b><span>' +
+    (_tawaran ? "Jadi ikon seperti aplikasi, tinggal tap untuk absen." : "Tap tombol Bagikan, lalu pilih <b>Tambah ke Layar Utama</b>.") +
+    '</span></div>' + (_tawaran ? '<button type="button" class="btn small" id="pasangYa">Pasang</button>' : "") +
+    '<button type="button" class="link" id="pasangNanti" aria-label="Tutup">Nanti</button>';
+  document.body.appendChild(bar);
+  document.getElementById("pasangNanti").onclick = function () {
+    try { localStorage.setItem("pasang_tutup_" + TOKEN, "1"); } catch (e) {} bar.remove();
+  };
+  const ya = document.getElementById("pasangYa");
+  if (ya) ya.onclick = async function () { _tawaran.prompt(); try { await _tawaran.userChoice; } catch (e) {} _tawaran = null; bar.remove(); };
+}
+window.addEventListener("load", function () { setTimeout(tampilPasang, 1500); });
 
 async function api(params, body) {
   if (params) params = Object.assign({ t: TOKEN }, params);

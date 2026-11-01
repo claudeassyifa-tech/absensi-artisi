@@ -7,10 +7,13 @@
 <meta name="theme-color" content="#094840">
 <link rel="icon" type="image/png" href="img/favicon.png">
 <link rel="apple-touch-icon" href="img/favicon-192.png">
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="artisi.css">
+<script>(function(){try{var t=new URLSearchParams(location.search).get("t")||localStorage.getItem("artisi_token")||"";if(/^bakso/.test(t)&&!/admin\.html/.test(location.pathname))document.documentElement.classList.add("tema-bakso")}catch(e){}})()</script>
 </head>
 <body>
 <header class="topbar" id="topbar"></header>
@@ -19,7 +22,7 @@
 
   <!-- ===== Login ===== -->
   <section id="login" class="login">
-    <a class="back" href="index.html">&larr; Kembali ke halaman absen</a>
+    <a class="back" id="backLogin" href="index.html" hidden>&larr; Kembali ke halaman absen</a>
     <div class="card">
       <h2>Masuk admin</h2>
       <p class="sub">Halaman ini untuk melihat dan mencetak rekap absensi.</p>
@@ -33,18 +36,20 @@
   <!-- ===== Dashboard ===== -->
   <section id="dash" hidden>
     <div class="toolbar no-print">
-      <a class="back" href="index.html" style="margin:0">&larr; Kembali</a>
+      <a class="back" id="backDash" href="index.html" style="margin:0" hidden>&larr; Kembali</a>
       <span class="grow"></span>
       <button class="btn small" id="btnKeluar">Keluar</button>
     </div>
 
     <div class="printhead">
       <img src="img/logo-hijau.png" alt="ARTISI Bakmie &amp; Kopi">
-      <h1>Laporan Absensi — Cafe ARTISI Bakmie &amp; Coffee</h1>
+      <h1 id="printJudul">Laporan Absensi — Cafe ARTISI Bakmie &amp; Coffee</h1>
       <p id="printPeriode"></p>
     </div>
 
     <div class="filters no-print">
+      <div><label for="fLokasi">Lokasi</label><select id="fLokasi">
+        <option value="semua">Semua lokasi</option><option value="artisi">Cafe ARTISI</option><option value="bakso">Bakso</option></select></div>
       <div><label for="fBulan">Bulan</label><select id="fBulan"></select></div>
       <div><label for="fTahun">Tahun</label><select id="fTahun"></select></div>
     </div>
@@ -72,7 +77,7 @@
     <div class="tablewrap" style="margin-bottom:16px">
       <table>
         <thead><tr>
-          <th>Nama</th><th>Status</th><th class="c">Hadir</th><th class="c">Terlambat</th><th class="c">Izin</th>
+          <th>Nama</th><th class="lokcol">Lokasi</th><th class="c">Hadir</th><th class="c">Terlambat</th><th class="c">Izin</th>
           <th class="c">Sakit</th><th class="c">Alfa</th><th class="c">Pulang cepat</th><th class="c">Total jam</th><th class="c">Lembur (mnt)</th>
         </tr></thead>
         <tbody id="tbRekap"></tbody>
@@ -84,7 +89,7 @@
       <div class="tablewrap">
         <table>
           <thead><tr>
-            <th>Tanggal</th><th>Nama</th><th>Shift</th><th>Masuk</th><th>Pulang</th><th>Keterangan</th>
+            <th>Tanggal</th><th>Nama</th><th class="lokcol">Lokasi</th><th>Shift</th><th>Masuk</th><th>Pulang</th><th>Keterangan</th>
             <th class="c">Durasi</th><th class="c">Lembur</th><th>Catatan</th><th class="no-print">Foto</th>
           </tr></thead>
           <tbody id="tbRinci"></tbody>
@@ -98,6 +103,12 @@
 <script src="config.js"></script>
 <script>
 renderTopbar("admin.html");
+if (TOKEN) { document.getElementById("backLogin").hidden = false; document.getElementById("backDash").hidden = false;
+  document.getElementById("backLogin").href = document.getElementById("backDash").href = "index.html?t=" + encodeURIComponent(TOKEN); }
+function lokParam() { return document.getElementById("fLokasi").value; }
+function aturKolomLokasi(banyak) {
+  document.querySelectorAll(".lokcol").forEach(function (e) { e.style.display = banyak ? "" : "none"; });
+}
 
 const BLN = ["Setahun penuh","Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
 const now = new Date();
@@ -118,7 +129,7 @@ async function masuk(pw) {
   const btn = document.getElementById("btnLogin");
   btn.disabled = true; btn.textContent = "Memeriksa...";
   try {
-    const r = await api(null, { action: "rekap", password: pw, bulan: document.getElementById("fBulan").value, tahun: document.getElementById("fTahun").value });
+    const r = await api(null, { action: "rekap", password: pw, lokasi: lokParam(), bulan: document.getElementById("fBulan").value, tahun: document.getElementById("fTahun").value });
     if (!r.ok) throw new Error(r.message);
     PW = pw; sessionStorage.setItem("artisi_pw", pw);
     document.getElementById("login").hidden = true;
@@ -148,13 +159,15 @@ aturRinci();
 
 /* ---------- Rekap ---------- */
 async function muatRekap() {
-  const r = await api(null, { action: "rekap", password: PW, bulan: document.getElementById("fBulan").value, tahun: document.getElementById("fTahun").value });
+  const r = await api(null, { action: "rekap", password: PW, lokasi: lokParam(), bulan: document.getElementById("fBulan").value, tahun: document.getElementById("fTahun").value });
   if (!r.ok) { alert(r.message); return; }
   tampilRekap(r);
 }
 
 function tampilRekap(r) {
-  document.getElementById("judulPeriode").textContent = "Rekap " + r.periode;
+  aturKolomLokasi(r.banyakLokasi > 1);
+  document.getElementById("judulPeriode").textContent = "Rekap " + r.periode + " — " + r.lokasiNama;
+  document.getElementById("printJudul").textContent = "Laporan Absensi — " + (r.banyakLokasi > 1 ? "Cafe ARTISI & Bakso" : r.lokasiNama);
   document.getElementById("printPeriode").textContent = "Periode: " + r.periode + " | Dicetak: " + new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
 
   const T = { hadir: 0, terlambat: 0, izin: 0, sakit: 0, alfa: 0, jam: 0, lembur: 0 };
@@ -173,13 +186,13 @@ function tampilRekap(r) {
     const seg = ["tepat", "terlambat", "izin", "sakit", "alfa"].map(function (k) {
       return p[k] ? '<i style="width:' + (p[k] / tot * 100) + "%;background:" + warna[k] + '" title="' + k + ": " + p[k] + '"></i>' : "";
     }).join("");
-    return '<div class="bar-row"><div class="top"><b>' + esc(p.nama) + "</b><span class='sub'>" +
+    return '<div class="bar-row"><div class="top"><b>' + esc(p.nama) + (r.banyakLokasi > 1 ? " <span class='sub'>(" + esc(p.lokasi) + ")</span>" : "") + "</b><span class='sub'>" +
       p.tepat + " tepat, " + p.terlambat + " telat, " + p.izin + " izin, " + p.sakit + " sakit, " + p.alfa + " alfa</span></div>" +
       '<div class="bar">' + (tot ? seg : "") + "</div></div>";
   }).join("");
 
   document.getElementById("tbRekap").innerHTML = r.pegawai.map(function (p) {
-    return "<tr><td><b>" + esc(p.nama) + "</b></td><td>" + esc(p.status) + '</td><td class="c">' + p.hadir +
+    return "<tr><td><b>" + esc(p.nama) + '</b></td><td class="lokcol">' + esc(p.lokasi) + '</td><td class="c">' + p.hadir +
       '</td><td class="c">' + p.terlambat + '</td><td class="c">' + p.izin + '</td><td class="c">' + p.sakit +
       '</td><td class="c">' + p.alfa + '</td><td class="c">' + p.pulangCepat + '</td><td class="c">' + p.jam +
       '</td><td class="c">' + p.lembur + "</td></tr>";
@@ -189,22 +202,24 @@ function tampilRekap(r) {
 /* ---------- Rincian harian ---------- */
 async function muatRinci() {
   const tb = document.getElementById("tbRinci");
-  tb.innerHTML = '<tr><td colspan="10" class="empty">Memuat...</td></tr>';
-  const r = await api(null, { action: "riwayat_admin", password: PW, bulan: document.getElementById("fBulan").value, tahun: document.getElementById("fTahun").value });
-  if (!r.ok) { tb.innerHTML = '<tr><td colspan="10" class="empty">Gagal memuat rincian.</td></tr>'; return; }
+  tb.innerHTML = '<tr><td colspan="11" class="empty">Memuat...</td></tr>';
+  const r = await api(null, { action: "riwayat_admin", password: PW, lokasi: lokParam(), bulan: document.getElementById("fBulan").value, tahun: document.getElementById("fTahun").value });
+  if (!r.ok) { tb.innerHTML = '<tr><td colspan="11" class="empty">Gagal memuat rincian.</td></tr>'; return; }
+  aturKolomLokasi(lokParam() === "semua");
   tb.innerHTML = r.rows.length ? r.rows.map(function (x) {
     const foto = (x.fotoMasuk ? "Masuk &#10003; " : "") + (x.fotoPulang ? "Pulang &#10003;" : "");
-    return "<tr><td>" + esc(x.tanggal) + "</td><td><b>" + esc(x.nama) + "</b></td><td>" + esc(x.shift) + "</td><td>" +
+    return "<tr><td>" + esc(x.tanggal) + "</td><td><b>" + esc(x.nama) + '</b></td><td class="lokcol">' + esc(x.lokasi) + "</td><td>" + esc(x.shift) + "</td><td>" +
       (jamPendek(x.masuk) || "-") + "</td><td>" + (jamPendek(x.pulang) || "-") + '</td><td><span class="badge ' + ketClass(x.ket) + '">' +
       esc(x.ket) + '</span></td><td class="c">' + (x.durasi ? esc(x.durasi) + " j" : "-") + '</td><td class="c">' +
       (parseInt(x.lembur, 10) ? esc(x.lembur) + " mnt" : "-") + '</td><td class="wrapnote">' + esc(x.catatan) +
       '</td><td class="no-print">' + (foto || "-") + "</td></tr>";
-  }).join("") : '<tr><td colspan="10" class="empty">Belum ada data pada periode ini.</td></tr>';
+  }).join("") : '<tr><td colspan="11" class="empty">Belum ada data pada periode ini.</td></tr>';
 }
 
 function ganti() { muatRekap(); muatRinci(); }
 document.getElementById("fBulan").onchange = ganti;
 document.getElementById("fTahun").onchange = ganti;
+document.getElementById("fLokasi").onchange = ganti;
 
 if (PW) masuk(PW);
 </script>

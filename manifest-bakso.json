@@ -1,0 +1,25 @@
+{
+ "name": "Absensi Bakso",
+ "short_name": "Absen Bakso",
+ "description": "Absensi Absensi Bakso",
+ "start_url": "index.html?t=bakso-508698cf29",
+ "scope": "./",
+ "display": "standalone",
+ "orientation": "portrait",
+ "background_color": "#f2f2f2",
+ "theme_color": "#222222",
+ "icons": [
+  {
+   "src": "img/icon-bakso-192.png",
+   "sizes": "192x192",
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "img/icon-bakso-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "any"
+  }
+ ]
+}
