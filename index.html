@@ -21,7 +21,7 @@
   <section class="clock" aria-live="off">
     <div class="clock-time" id="jam">--:--:--</div>
     <div class="clock-date" id="tanggal">&nbsp;</div>
-    <div class="clock-shift">Pagi 09.00-17.00 &nbsp;|&nbsp; Sore 14.00-22.00</div>
+    <div class="clock-shift" id="shiftLine">&nbsp;</div>
   </section>
 
   <div id="notice" class="notice" role="status" aria-live="polite"></div>
@@ -91,13 +91,15 @@ function tick() {
 
 /* ---------- Penguncian ---------- */
 function shiftOrang(p) {
-  return p.ada && p.shiftTercatat ? p.shiftTercatat : (p.shift || (detikKini() < 14 * 3600 ? "Pagi" : "Sore"));
+  if (p.ada && p.shiftTercatat && DATA.shiftInfo[p.shiftTercatat]) return p.shiftTercatat;
+  if (p.shift) return p.shift;
+  return detikKini() < DATA.luar.batas * 60 ? DATA.luar.awal : DATA.luar.akhir;
 }
 function kunciMasuk(p) {
   const nm = shiftOrang(p), s = DATA.shiftInfo[nm], now = detikKini();
   const buka = s.mulai * 60 - (DATA.bukaSebelum || 0) * 60;
   if (now < buka) return { kunci: true, buka: buka, pesan: "Absen masuk dibuka jam " + jamMenit(buka / 60) + " (" + sisaWaktu(buka - now) + " lagi)." };
-  if (now >= s.selesai * 60) return { kunci: true, pesan: "Shift " + nm.toLowerCase() + " sudah berakhir, absen masuk ditutup. Hubungi admin jika perlu dicatat." };
+  if (now >= s.selesai * 60) return { kunci: true, pesan: (nm === "Full" ? "Shift full" : "Shift " + nm.toLowerCase()) + " sudah berakhir, absen masuk ditutup. Hubungi admin jika perlu dicatat." };
   return { kunci: false };
 }
 function kunciPulang(p) {
@@ -171,10 +173,10 @@ function notice(tipe, judul, isi) {
 function clearNotice() { const el = document.getElementById("notice"); el.className = "notice"; el.innerHTML = ""; }
 
 /* ---------- Muat data ---------- */
-const CACHE_KEY = "artisi_hariini";
+const CACHE_KEY = "artisi_hariini_" + TOKEN;
 function tanggalWIB() { return new Date().toLocaleDateString("en-GB", { timeZone: "Asia/Jakarta" }); }   // dd/mm/yyyy, sama dengan server
 function bacaCache() {
-  try { const c = JSON.parse(localStorage.getItem(CACHE_KEY)); return c && c.tanggal === tanggalWIB() ? c : null; } catch (e) { return null; }
+  try { const c = JSON.parse(localStorage.getItem(CACHE_KEY)); return c && c.tanggal === tanggalWIB() && c.urut ? c : null; } catch (e) { return null; }
 }
 function simpanCache() { try { localStorage.setItem(CACHE_KEY, JSON.stringify(DATA)); } catch (e) {} }
 
@@ -185,12 +187,16 @@ async function load(tampilDulu) {
     const d = await api({ action: "hariini" });
     if (!d.ok) throw new Error(d.message);
     const sebelum = SEL && DATA ? JSON.stringify(DATA.people.find(function (x) { return x.nama === SEL; })) : null;
-    DATA = d; selaraskanJam(d); simpanCache();
+    DATA = d; selaraskanJam(d); simpanCache(); setLokasiLabel(d.lokasiNama);
     render(!!SEL);                                   // jangan hapus isian yang sedang ditulis
     if (SEL && sebelum !== JSON.stringify(DATA.people.find(function (x) { return x.nama === SEL; }))) renderPanel();
     updateKunci();
   } catch (e) {
-    if (!DATA) document.getElementById("list").innerHTML = '<div class="empty">Jadwal gagal dimuat. Periksa koneksi internet, lalu muat ulang halaman.</div>';
+    if (!DATA) {
+      const li = document.getElementById("list");
+      if (/Link/.test(e.message || "")) pesanTokenTidakValid(li);
+      else li.innerHTML = '<div class="empty">Jadwal gagal dimuat. Periksa koneksi internet, lalu muat ulang halaman.</div>';
+    }
   }
 }
 
@@ -215,22 +221,28 @@ function personBtn(p) {
     '<span class="st">' + stateHtml(p) + "</span></button>";
 }
 
-const GRUP = [
-  { key: "Pagi",     cls: "g-pagi", judul: "Shift Pagi" },
-  { key: "Seharian", cls: "g-full", judul: "Seharian (double shift)" },
-  { key: "Sore",     cls: "g-sore", judul: "Shift Sore" }
-];
+const GRUP_META = {
+  Pagi:     { cls: "g-pagi", judul: "Shift Pagi" },
+  Seharian: { cls: "g-full", judul: "Seharian (double shift)" },
+  Sore:     { cls: "g-sore", judul: "Shift Sore" },
+  Full:     { cls: "g-full", judul: "Full (seharian)" }
+};
 
 function render(keepPanel) {
   const jadwal = DATA.people.filter(function (p) { return p.terjadwal; });
   const lain = DATA.people.filter(function (p) { return !p.terjadwal; });
 
+  document.getElementById("shiftLine").innerHTML = DATA.urut.filter(function (k) { return k !== "Seharian"; }).map(function (k) {
+    return esc(k) + " " + esc(DATA.shiftInfo[k].label.replace(/ - /, "-"));
+  }).join(" &nbsp;|&nbsp; ");
+
   let html = "";
-  GRUP.forEach(function (g) {
-    const isi = jadwal.filter(function (p) { return p.shift === g.key; });
+  DATA.urut.forEach(function (key) {
+    const g = GRUP_META[key] || { cls: "g-full", judul: "Shift " + key };
+    const isi = jadwal.filter(function (p) { return p.shift === key; });
     if (!isi.length) return;
     html += '<section class="grp ' + g.cls + '"><div class="grp-h"><h3>' + g.judul + "</h3><span>" +
-      esc(DATA.shiftInfo[g.key].label) + '</span></div><div class="people">' +
+      esc(DATA.shiftInfo[key].label) + '</span></div><div class="people">' +
       isi.map(personBtn).join("") + "</div></section>";
   });
   const listEl = document.getElementById("list");
@@ -272,8 +284,8 @@ function renderPanel() {
   const selesai = selesaiHariIni(p);
   const sudahMasuk = !!(p.ada && p.masuk && !p.pulang);
 
-  const meta = (p.terjadwal ? "Shift " + (p.shift === "Seharian" ? "seharian (double shift)" : p.shift.toLowerCase())
-                            : "Di luar jadwal hari ini, dicatat sebagai shift " + shift.toLowerCase()) + " &middot; " + esc(info.label);
+  const meta = (p.terjadwal ? (p.shift === "Seharian" ? "Shift seharian (double shift)" : p.shift === "Full" ? "Full (seharian)" : "Shift " + p.shift.toLowerCase())
+                            : "Di luar jadwal hari ini, dicatat sebagai " + (shift === "Full" ? "full" : "shift " + shift.toLowerCase())) + " &middot; " + esc(info.label);
 
   let isi;
   if (selesai) {
