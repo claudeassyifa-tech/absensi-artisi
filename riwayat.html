@@ -7,6 +7,8 @@
 <meta name="theme-color" content="#094840">
 <link rel="icon" type="image/png" href="img/favicon.png">
 <link rel="apple-touch-icon" href="img/favicon-192.png">
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -73,6 +75,7 @@ async function load() {
       nama: document.getElementById("fNama").value
     });
     if (!r.ok) throw new Error(r.message);
+    setLokasiLabel(r.lokasiNama);
     const sel = document.getElementById("fNama");
     if (sel.options.length === 1) {
       r.pegawai.forEach(function (n) { sel.add(new Option(n, n)); });
@@ -80,7 +83,7 @@ async function load() {
     ROWS = r.rows;
     tampil();
   } catch (e) {
-    document.getElementById("tb").innerHTML = '<tr><td colspan="9" class="empty">Data gagal dimuat. Periksa koneksi internet.</td></tr>';
+    document.getElementById("tb").innerHTML = '<tr><td colspan="9" class="empty">' + (/Link/.test(e.message || "") ? esc(e.message) : "Data gagal dimuat. Periksa koneksi internet.") + "</td></tr>";
   }
 }
 
